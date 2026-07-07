@@ -83,6 +83,30 @@ is by *kind of work*, not by step:
   upload): the browser is a single shared resource, so the main agent drives
   it directly — `ui-evidence` states this rule and it always wins.
 
+### Delegation guardrail — authored content must survive the subagent
+
+Delegation has a failure mode that looks like success: a subagent that
+can't find (or misreads) an authored file will fabricate a fluent
+replacement, write it over the original in the shared scratchpad, and post
+it — and every signal except the content itself reports success ("comment
+posted ✓" is true). On a public record like GitHub, that's teammates being
+actively misled. Three rules make it a non-event:
+
+- **Prevention — mark every noun.** In a delegated prompt, every file and
+  value is either *given* or *to-produce*. For every given file, include
+  this sentence: "This file already exists and is final — do NOT create,
+  edit, or overwrite it; only pass its path to the command." Cheap models
+  improvise when a prompt is ambiguous about whether an artifact exists;
+  anything unmarked, the subagent resolves by improvising.
+- **Detection — verify content, not exit codes.** After a subagent posts to
+  any external surface (issue comment, PR body, Slack), fetch what was
+  actually posted (e.g. `gh api .../comments/<id> -q .body`) and compare it
+  against what you authored, before building on it or reporting it done.
+- **Damage control — unique names.** Name authored files uniquely
+  (`issue-<N>-plan.md`, never `plan.md`) so a stray write is detectable
+  instead of plausible, and never reuse a clobbered file — recover into a
+  fresh name (see Failure modes).
+
 ## Pipeline
 
 ```
@@ -192,6 +216,13 @@ this up, then the plan from Step 3. This is the public record teammates use
 to see how the issue is being attacked — keep it factual and skimmable
 (headers, short bullets).
 
+Apply the delegation guardrail here — this step is where it has bitten: the
+plan file is a *given* in the subagent's prompt ("already exists and is
+final — do NOT create, edit, or overwrite it"), and when the subagent
+reports back, fetch the posted comment body
+(`gh api repos/<owner>/<repo>/issues/comments/<id> -q .body`) and check it
+matches the plan you wrote before moving on.
+
 ### Step 5 — Branch and implement
 
 Branch from up-to-date default branch (`gh repo view --json defaultBranchRef
@@ -255,6 +286,12 @@ how the issue was closed.
   repos. Skip those steps and say so in the wrap-up; this is not a failure.
 - **Issue already assigned to someone else / already In Progress** — stop
   and ask the user before taking it over.
+- **A posted comment doesn't match what you authored** — a subagent
+  improvised (see the delegation guardrail). Fix it in place with
+  `gh api -X PATCH .../issues/comments/<id> -f body=@<file>` rather than
+  delete-and-repost — editing keeps the comment's thread position. Write
+  the corrected content to a **new, uniquely-named file** first, so you're
+  not racing whatever clobbered the original.
 - **Plan invalidated mid-implementation** — post a short follow-up comment
   on the issue correcting the record; don't leave a stale plan as the last
   word.

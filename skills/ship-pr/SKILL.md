@@ -26,6 +26,24 @@ applying labels/milestone/assignee, board moves, the Slack post — goes to a
 subagent that receives the authored content plus exact commands and returns
 only what's needed next (PR URL, board item id).
 
+Two rules keep that delegation honest — a subagent that can't find an
+authored file will fabricate a fluent replacement, and every signal except
+the content itself will report success:
+
+- **Mark every noun in the prompt.** Each file or text is *given* or
+  *to-produce*. For every given file: "This file already exists and is
+  final — do NOT create, edit, or overwrite it; only pass its path to the
+  command." Authored text travels with "post this EXACTLY, verbatim". Name
+  authored files uniquely (`pr-<N>-body.md`, not `body.md`) so a stray
+  write is detectable.
+- **Verify content, not exit codes.** After the subagent runs, fetch what
+  was actually published (`gh pr view <PR> --json title,body`, the posted
+  comment via `gh api .../comments/<id> -q .body`, the Slack message) and
+  compare it to what you authored. If it drifted, edit in place —
+  `gh pr edit` / `gh api -X PATCH` keeps thread position, unlike
+  delete-and-repost — using corrected content written to a **fresh,
+  uniquely-named file**, not the possibly-clobbered original.
+
 ## 1. Author the PR body
 
 Write the title and body to a file before anything is created. If the repo
@@ -73,7 +91,9 @@ board.sh size "$PR_ITEM" <XS/S/M/L/XL, decided by the main agent>
 ```
 
 The subagent reports back the **PR URL and `PR_ITEM` id** — the next steps
-need both. If the issue has no milestone, use the open sprint/milestone
+need both. Before using them, verify the created PR's title and body match
+what you authored (`gh pr view <PR> --json title,body`) — see the
+delegation rules above. If the issue has no milestone, use the open sprint/milestone
 whose date range contains today (`gh api repos/<owner>/<repo>/milestones`),
 if the repo uses milestones at all. Leave the **issue's** board status at
 In Progress — it flips to Done automatically when the PR merges.
@@ -91,7 +111,8 @@ marked ready — never a draft.
 ## 4. Mark ready + announce (delegated)
 
 Author the Slack message, then spawn a subagent with the PR number,
-`PR_ITEM` (if any), the message, and the channel, to run:
+`PR_ITEM` (if any), the message — instructed to post it **EXACTLY,
+verbatim** — and the channel, to run:
 
 ```bash
 gh pr ready <PR>
