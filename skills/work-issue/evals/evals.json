@@ -29,7 +29,7 @@
     {
       "id": 5,
       "prompt": "/work-issue #<N> (run a second time in a repo already configured from a prior run)",
-      "expected_output": "Step 0 reads the existing .claude/work-issue.config.json and does not re-ask about board/Slack/reviewer; proceeds straight to reading the issue.",
+      "expected_output": "Step 0 reads the existing .claude/gh-workflow.config.json (or migrates a legacy .claude/work-issue.config.json) and does not re-ask about board/Slack/reviewer; proceeds straight to reading the issue.",
       "files": []
     }
   ]
