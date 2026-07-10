@@ -13,88 +13,19 @@ consumes its output later — the issue comment is the public record of the
 approach, the PR body is the QA script, the GIF is the visual proof. Write
 those artifacts for *them*, not for the user in this chat.
 
-This skill is repo-agnostic: it discovers the repo, GitHub user, project
-board, and repo conventions at runtime rather than assuming a specific
-project. Facts that can't be discovered automatically (which project board to
-use, which Slack channel, who to ping) live in a small per-repo config file
-that Step 0 creates on first use and reuses on every run after.
+This skill is the **orchestrator**: it owns the pipeline order, the
+implementation (the only phase no companion covers), and the wrap-up. The
+rest lives in five companion skills, each also usable standalone — invoke
+them via the Skill tool at the step that needs them, and follow their rules
+rather than restating them here:
 
-## Bundled helpers
-
-| What | Path | Purpose |
+| Skill | Owns | Used at |
 |---|---|---|
-| Board helper | `scripts/board.sh` | Generic GitHub Projects (v2) add/find/status/priority/size — resolves field & option IDs by name at call time, works against any board |
-| Config helper | `scripts/config.sh` | Reads/writes `<repo-root>/.claude/work-issue.config.json` |
-
-Both are bundled with this skill (not the target repo), so always invoke them
-by the skill's own path, e.g. `<skill-dir>/scripts/board.sh`. Find `<skill-dir>`
-from wherever this SKILL.md was loaded from.
-
-## Step 0 — Resolve repo facts and per-repo config
-
-Do this before anything else; every later step depends on it.
-
-1. **Repo.** `gh repo view --json nameWithOwner,url -q .nameWithOwner` from the
-   cwd — `gh` resolves this from the git remote, so it works in any repo
-   without configuration. If this fails (not a git repo, no `gh` auth), stop
-   and tell the user.
-2. **GitHub user to assign.** `gh api user -q .login` — the currently
-   authenticated `gh` user. Don't hardcode a username.
-3. **Load or create the config file**: run
-   `<skill-dir>/scripts/config.sh read` (creates nothing yet, just reads).
-   This is a small JSON file at `<repo-root>/.claude/work-issue.config.json`
-   holding facts that can't be discovered from the GitHub API alone:
-
-   ```json
-   {
-     "projectBoard": { "owner": "<github-org-or-user>", "number": 1 },
-     "slackChannel": "#pr-review",
-     "slackChannelId": "C0123456789",
-     "defaultReviewer": { "name": "Alex", "slackId": "U0123456789" },
-     "prTemplate": ".github/pull_request_template.md",
-     "branchConvention": "<type>/<N>-<slug>"
-   }
-   ```
-
-   Every field is optional and repo-specific — this is just an example shape,
-   not a default configuration. Only fill in what Step 0 actually resolves
-   for the repo at hand.
-
-   - If the file is missing or a key is missing, that feature is simply
-     unconfigured — don't block the whole pipeline on it. Ask the user about
-     each missing piece **once, up front**, right after reading the issue
-     (batch the questions with AskUserQuestion rather than asking one at a
-     time deep into the run):
-     - *Project board*: try `gh project list --owner <org-from-repo> --format json`
-       first — if exactly one open project references this repo, propose it
-       instead of asking blind. If none/ambiguous, ask whether to use a board
-       at all, and if so which number/owner.
-     - *PR template*: check `.github/pull_request_template.md` and
-       `.github/PULL_REQUEST_TEMPLATE.md` in the repo directly — no need to
-       ask, just detect. If absent, note that PRs will be free-form.
-     - *Slack*: check for a connected Slack MCP (ToolSearch for `slack`
-       tools). If found, ask which channel and (optionally) a default
-       reviewer to `@mention`. If no Slack MCP is connected at all, skip
-       silently — don't ask about a channel for a tool that isn't there.
-     - *Branch/commit convention*: read a handful of recent branch names
-       (`git branch -r | tail -20`) and `git log --oneline -20` to infer the
-       pattern rather than asking — most repos are consistent enough to
-       reverse-engineer. Fall back to `<type>/<N>-<slug>` branches and
-       Conventional Commits if history is sparse or inconsistent.
-   - Write whatever was resolved (asked or inferred) back with
-     `<skill-dir>/scripts/config.sh init` + editing the JSON, so the next run
-     in this repo asks nothing. Tell the user you saved it and where, so they
-     can edit or gitignore it if they want.
-   - If the config file already has a value, trust it — don't re-ask or
-     re-detect. If the user says a saved value is wrong mid-run, update the
-     file immediately.
-
-4. **Repo command conventions.** Look for `CLAUDE.md` / `AGENTS.md` at the
-   repo root — most repos maintained with Claude Code have one describing
-   lint/test/build/typecheck commands, directory layout, and gotchas specific
-   to that codebase. If present, read it and follow it for Steps 5–6 instead
-   of guessing. If absent, infer commands from `package.json` scripts (or the
-   equivalent for the repo's language/toolchain) before running anything.
+| `gh-repo-config` | Repo facts, conventions, `.claude/gh-workflow.config.json` | Step 0 |
+| `issue-plan` | Read issue → survey → plan → assign + In Progress + plan comment | Step 2 |
+| `gh-board` | All GitHub Projects (v2) operations (`board.sh`) | via `issue-plan`/`ship-pr` |
+| `ui-evidence` | Before/after screenshots, GIF recording, PR media upload | Steps 2, 4, 6 |
+| `ship-pr` | PR body, draft→ready lifecycle, metadata, Slack announcement, post-merge close-out | Steps 5–7 + close-out |
 
 ## Invocation and +skill params
 
@@ -107,7 +38,7 @@ extra skills prefixed with `+`:
 /work-issue 302 +systematic-debugging
 ```
 
-Each `+name` is a skill to load in Step 2 **in addition to** the defaults.
+Each `+name` is a skill to load in Step 1 **in addition to** the defaults.
 This is the extension point: the user will keep adding skills to their
 toolbox over time, so treat the list as open-ended. If a `+name` doesn't
 match any available skill, say so briefly and continue without it — a typo
@@ -132,9 +63,9 @@ each through the full pipeline in its own subagent with
 would otherwise fight over branches and the working tree. Spawn the agents in
 one message so they run concurrently, give each the full skill path and its
 issue, and relay each PR URL as it lands. Anything that needs the shared
-Chrome browser (GIF recording, GIF upload) serializes badly across parallel
-agents — have each agent finish its PR and leave UI verification queued, then
-do the Chrome-dependent steps yourself, one PR at a time, at the end.
+Chrome browser (see `ui-evidence`) serializes badly across parallel agents —
+have each agent finish its PR and leave UI verification queued, then do the
+Chrome-dependent steps yourself, one PR at a time, at the end.
 
 ## Division of labor — the main agent writes code, subagents do bookkeeping
 
@@ -151,36 +82,59 @@ is by *kind of work*, not by step:
   URL, an item ID). They need no session context beyond what's in the prompt.
 - **The one exception is Chrome** (screenshots, GIF recording, media
   upload): the browser is a single shared resource, so the main agent drives
-  it directly.
+  it directly — `ui-evidence` states this rule and it always wins.
+
+### Delegation guardrail — authored content must survive the subagent
+
+Delegation has a failure mode that looks like success: a subagent that
+can't find (or misreads) an authored file will fabricate a fluent
+replacement, write it over the original in the shared scratchpad, and post
+it — and every signal except the content itself reports success ("comment
+posted ✓" is true). On a public record like GitHub, that's teammates being
+actively misled. Three rules make it a non-event:
+
+- **Prevention — mark every noun.** In a delegated prompt, every file and
+  value is either *given* or *to-produce*. For every given file, include
+  this sentence: "This file already exists and is final — do NOT create,
+  edit, or overwrite it; only pass its path to the command." Cheap models
+  improvise when a prompt is ambiguous about whether an artifact exists;
+  anything unmarked, the subagent resolves by improvising.
+- **Detection — verify content, not exit codes.** After a subagent posts to
+  any external surface (issue comment, PR body, Slack), fetch what was
+  actually posted (e.g. `gh api .../comments/<id> -q .body`) and compare it
+  against what you authored, before building on it or reporting it done.
+- **Damage control — unique names.** Name authored files uniquely
+  (`issue-<N>-plan.md`, never `plan.md`) so a stray write is detectable
+  instead of plausible, and never reuse a clobbered file — recover into a
+  fresh name.
+
+`issue-plan` and `ship-pr` apply these rules at their own posting steps and
+document the in-place recovery (`gh api -X PATCH` / `gh pr edit`); this
+section is the doctrine that also covers any *other* delegation the run
+invents.
 
 ## Pipeline
 
 ```
-0. Resolve repo + config  →  1. Read issue  →  2. Load skills
-→  3. Plan (+ before-screenshots if UI)  →  4. Housekeeping (subagent)
-→  5. Branch + implement  →  6. Verify (+ GIF if UI)
-→  7. Draft PR + board (subagent)  →  8. GIF + screenshots comment
-→  9. Mark ready + Slack (subagent)
+0. Resolve repo + config (gh-repo-config)  →  1. Load skills
+→  2. Read + plan + housekeeping (issue-plan; before-shots via ui-evidence if UI)
+→  3. Branch + implement  →  4. Verify (+ GIF via ui-evidence if UI)
+→  5. Draft PR + board (ship-pr)  →  6. Post media (ui-evidence)
+→  7. Mark ready + Slack (ship-pr)
 ```
 
-### Step 1 — Read the issue
+### Step 0 — Resolve repo facts and per-repo config
 
-Accept a full URL, `#N`, or a bare number. Gather everything in one pass:
+Invoke **`gh-repo-config`** and follow its discovery procedure. Before
+moving on you need: the repo (`nameWithOwner`), the authenticated gh user,
+board/Slack/template config (or the knowledge that they're unconfigured),
+the branch/commit convention, and the repo's build/lint/test commands
+(`CLAUDE.md`/`AGENTS.md` or inferred). Batch any questions for the user
+right after reading the issue, not one at a time deep into the run. If the
+repo itself can't be resolved (not a git repo, no `gh` auth), stop and tell
+the user.
 
-```bash
-gh issue view <N> --json number,title,body,labels,milestone,assignees,comments,url
-```
-
-Read the comments too — later comments often amend or overrule the original
-body. If the issue references other issues/PRs (an epic parent, a "relates
-to"), skim those for constraints. If the issue is genuinely ambiguous about
-*what* to build (not *how* — that's your job), ask the user before touching
-anything.
-
-If the issue is already assigned to someone else or already In Progress on
-the board, stop and ask the user before taking it over.
-
-### Step 2 — Load the companion skills
+### Step 1 — Load the companion skills
 
 Invoke via the Skill tool. Always load:
 
@@ -192,8 +146,9 @@ Invoke via the Skill tool. Always load:
 2. **`efficient-fable`** — orchestration mode: you architect and judge;
    cheap subagents do bounded research/coding/testing legwork.
 
-Conditionally load, when the issue is frontend work (a `frontend`/`UI`/`UX`
-label, or the plan touches UI component/page files):
+Conditionally load, once Step 2 reveals the issue is frontend work (a
+`frontend`/`UI`/`UX` label, or the plan touches UI component/page files) —
+these two can wait until then:
 
 3. **`vercel-react-best-practices`** — React/Next.js performance patterns
    (skip if the repo isn't React/Next.js).
@@ -207,268 +162,94 @@ it fits rather than forcing it everywhere.
 
 Do **not** invoke the full `improve` skill (it's a read-only advisor that
 writes plan files under `plans/` and never implements). Instead, borrow its
-posture for Step 3: survey first, read-only, and write the plan well enough
-that someone with zero session context could follow it.
+posture for the planning phase: survey first, read-only, and write the plan
+well enough that someone with zero session context could follow it.
 
-### Step 3 — Plan of attack
+### Step 2 — Read, plan, and housekeeping (issue-plan)
 
-Before writing any code, survey the code the issue touches (read-only —
-Explore subagents are good for this). Produce a short plan:
+Invoke **`issue-plan`** and follow it end to end: it reads the issue (with
+comments and referenced issues), stops if the issue is ambiguous or already
+someone else's, surveys the code read-only, authors the four-part plan
+(root cause, approach, risks, test plan), and spawns the housekeeping
+subagent (assign + board In Progress + plan comment) with the delegation
+guardrail applied. In this pipeline the housekeeping runs in the
+background — don't block on it; start Step 3 while it posts, then check its
+content verification before Step 5.
 
-- **Root cause / current behavior** — what the code does today and why
-  that's the issue.
-- **Approach** — what will change, in which files.
-- **Risks / blast radius** — what else touches this code. Check the repo's
-  `CLAUDE.md`/`AGENTS.md` for documented gotchas (multi-tenancy, auth
-  boundaries, basePath quirks, dual databases, feature flags — whatever that
-  repo calls out) and weigh them here.
-- **Test plan** — which checks will prove it works (commands + manual
-  steps), using the commands discovered in Step 0.4.
+Its plan is a load-bearing artifact for the rest of the run: it seeds the
+PR body in Step 5, and its test plan is the checklist for Steps 3–4. If the
+issue touches UI, `issue-plan` triggers `ui-evidence`'s before-captures —
+that must happen before any code changes in Step 3.
 
-This plan becomes the issue comment in Step 4 and the seed of the PR body in
-Step 7, so write it once, well.
-
-**Before-screenshots (UI issues only).** The only moment the "before" state
-exists is now — once you've implemented, it's gone. If the issue touches
-anything visible, open the affected screen(s) in Chrome while the code is
-still untouched and take screenshots
-(`mcp__claude-in-chrome__computer` screenshot action), saved as
-`issue-<N>-before-<screen>.png`. Reviewers weigh a before/after pair far more
-than a description of what changed. If the local app isn't running and
-starting it is disruptive right now, note that "before" captures were
-skipped and why.
-
-### Step 4 — Housekeeping (spawn a subagent, don't block on it)
-
-As soon as the plan exists, spawn one subagent to do the GitHub bookkeeping
-while you start implementing. Give it the issue number, issue URL, the
-resolved GitHub username, the plan text, and (if configured) the project
-board owner/number, and have it run:
-
-```bash
-gh issue edit <N> --add-assignee <github-user-from-step-0>
-if <board configured>; then
-  ITEM=$(GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh find <owner>/<repo> <N>)
-  [ -z "$ITEM" ] && ITEM=$(GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh add <issue-url>)
-  GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh status "$ITEM" "In Progress"
-fi
-gh issue comment <N> --body-file <plan.md>
-```
-
-The comment should open with a one-line note that an AI agent is picking
-this up, then the plan from Step 3. This is the public record teammates use
-to see how the issue is being attacked — keep it factual and skimmable
-(headers, short bullets).
-
-### Step 5 — Branch and implement
+### Step 3 — Branch and implement
 
 Branch from up-to-date default branch (`gh repo view --json defaultBranchRef
--q .defaultBranchRef.name`), following the convention resolved in Step 0.4
+-q .defaultBranchRef.name`), following the convention resolved in Step 0
 (e.g. `fix/292-status-filter-options`, `feat/293-request-intake-module`).
 Pick `type` from the issue's nature: `feat`, `fix`, `chore`, `refactor`,
 `docs`.
 
 Implement per the plan, using efficient-fable orchestration. Use the
-commands and per-directory conventions discovered in Step 0.4
-(`CLAUDE.md`/`AGENTS.md` or inferred from `package.json`/build config) — lint,
+commands and per-directory conventions discovered in Step 0 — lint,
 typecheck, test, build. If the tree has pre-existing lint/type errors
 unrelated to your change, judge your diff by *new* errors on *changed files*
-only, and say so in the PR. Follow whatever commit message convention Step
-0.4 inferred, and end commits with the Co-Authored-By trailer.
+only, and say so in the PR. Follow the commit message convention from Step
+0, and end commits with the Co-Authored-By trailer.
 
 Run the relevant checks before moving on; if the repo has a pre-push hook
 (check `.githooks/` or `core.hooksPath` in git config) it'll typecheck/lint
 anyway — failures are cheaper to catch now than at push time.
 
-### Step 6 — Verify (GIF required for UI changes)
+### Step 4 — Verify (GIF required for UI changes)
 
-Decide: did this change anything a user can see or click (components, pages,
-styles, client-side behavior)? If yes, this step is **mandatory**, because
-the PR comment with the GIF is what tells the user "this needs your visual
-sign-off".
-
-1. Invoke the **`verify`** skill — exercise the changed flow end-to-end in
-   the running app (check for a `run` skill or repo docs for how to start it
-   and its local URL/basePath conventions).
-2. While driving the flow in Chrome, record it with
-   `mcp__claude-in-chrome__gif_creator`: start capture before the first
-   action, capture extra frames before/after each step, and name the file
-   after the issue (e.g. `issue-<N>-verification.gif`). Save it somewhere
-   durable and note the path.
-3. Take "after" screenshots of the same screens you captured in Step 3
-   (`issue-<N>-after-<screen>.png`) so the PR comment can show matched
-   before/after pairs.
+Decide: did this change anything a user can see or click? If yes, this step
+is **mandatory**: invoke the **`verify`** skill to exercise the changed flow
+end-to-end in the running app, and record it per **`ui-evidence`** (GIF +
+matching "after" screenshots of the screens captured during Step 2's
+before-shots).
 
 For backend-only changes, `verify` at your judgment (run the integration
 tests, exercise the endpoint), and skip the GIF.
 
-### Step 7 — Draft pull request + board (delegated)
+### Steps 5–7 — Ship the PR
 
-The main agent does exactly two things here: push the branch, and **author
-the PR content** (title + body written to a file). Everything else —
-creating the PR, labels, milestone, assignee, board item — goes to a
-subagent so the main agent's context stays on the code.
-
-Draft is deliberate: "In Review" on the board must mean *actually
-reviewable*, so the PR stays a draft until checks pass and the visual
-evidence is posted (Step 9 flips it). If a PR template was found in Step 0,
-read it and fill **every** section rather than approximating from memory. If
-no template exists, use this shape:
-
-- **Description / Changes made** — from your plan + what actually happened.
-- **Type of change** — feature / fix / chore / refactor / docs.
-- **Relationship** — `Closes #<N>` (this is what auto-closes the issue and
-  links the board items, if a board is in play).
-- **Labels & checklist** — check the boxes you actually completed, right
-  after you complete them below.
-- **Testing** — this is the QA script. Two parts:
-  - Checked boxes with the *exact commands run and their results*.
-  - A **QA verification steps** list: numbered, concrete manual steps a QA
-    person can follow without context.
-- **Screenshots (if UI change)** — note that before/after screenshots and
-  the GIF follow as a comment (Step 8) if the repo is private (attachments on
-  a private repo can only be uploaded through the browser — public repos can
-  usually take a direct `![]()` markdown link in the body instead).
-
-Title follows the commit convention resolved in Step 0.4, typically
-`type(#N): summary`.
-
-The main agent also *decides* the metadata (labels mirrored from the issue,
-milestone, size estimate) — deciding takes judgment, applying doesn't. Then
-spawn the **PR subagent** with the body file path, the metadata values, and
-the skill's script path, to run:
-
-```bash
-gh pr create --draft --title "<title>" --body-file <body.md>
-gh pr edit <PR> --add-assignee <github-user> \
-  --add-label <issue's labels, comma-separated> \
-  --milestone "<issue's milestone, if any>"
-if <board configured>; then
-  PR_ITEM=$(GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh add <pr-url>)
-  GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh status "$PR_ITEM" "In Progress"
-  GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh priority "$PR_ITEM" <issue's P-label, if any>
-  GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh size "$PR_ITEM" <XS/S/M/L/XL from main agent>
-fi
-```
-
-The subagent reports back the **PR URL and `PR_ITEM` id** (if a board is
-configured) — Steps 8 and 9 need both. While it runs, the main agent can
-proceed with anything not blocked on the PR URL (e.g. final self-review of
-the diff).
-
-The PR's board status (if configured) starts at **In Progress** to match its
-draft state; Step 9 moves it to In Review when the PR is marked ready. If
-the issue has no milestone, use the open sprint/milestone whose date range
-contains today (`gh api repos/<owner>/<repo>/milestones`), if the repo uses
-milestones at all. Leave the **issue's** board status at In Progress — it
-flips to Done automatically when the PR merges and closes it.
-
-### Step 8 — Post the GIF + screenshots comment (UI changes only)
-
-Check whether the repo is private (`gh repo view --json isPrivate`). If
-private, raw file links won't render for other viewers — attachments must be
-uploaded as real comment attachments, which only works through the browser:
-
-1. Open the PR page in Chrome (claude-in-chrome tools).
-2. In the comment box, attach the before-screenshots from Step 3, matching
-   "after" screenshots or the verification GIF from Step 6, using
-   `mcp__claude-in-chrome__file_upload`.
-3. Comment text: label the images (Before / After / Flow recording), one or
-   two sentences on what flow the GIF shows, and that the user should
-   visually verify it before merging. Submit.
-
-If the repo is public, you can instead embed the images/GIF directly in the
-PR body or a `gh pr comment` markdown body via a hosted path, whichever is
-simpler — the browser upload dance exists specifically to work around
-private-repo attachment restrictions.
-
-If the Chrome extension isn't available or the upload fails twice, don't
-spin: post a text comment saying the verification media exists, and tell the
-user the local file paths so they can drag-drop them themselves.
-
-### Step 9 — Mark ready + Slack announcement (delegated)
-
-The **decision** to graduate the PR from draft is the main agent's: it
-happens only when checks ran clean (Step 5) and, for UI changes, the
-verification media is posted (Step 8). If something is genuinely unresolved
-(a check you couldn't fix, verification the user must do first), leave it as
-a draft, leave the board at In Progress, and say exactly what's blocking in
-the wrap-up — a premature "ready" wastes a reviewer's time and burns trust
-in the board.
-
-Once the main agent decides the PR is ready, it authors the Slack message
-text (if Slack is configured — see Step 0) and spawns the **release
-subagent** with the PR number, `PR_ITEM` (if any), the message, and the
-channel, to execute:
-
-1. ```bash
-   gh pr ready <PR>
-   # if board configured:
-   GH_PROJECT_OWNER=<owner> GH_PROJECT_NUMBER=<number> <skill-dir>/scripts/board.sh status "$PR_ITEM" "In Review"
-   ```
-2. If Slack is configured, detect the Slack MCP via ToolSearch for `slack`
-   message/post tools and post the message to the configured review channel.
-3. Report back what succeeded (ready flipped? board moved? Slack posted?).
-
-Slack is often a team's primary communication channel — a PR nobody sees is
-a PR nobody reviews, so the announcement is what actually gets the work
-reviewed, when Slack is in play. Two things make an announcement actually
-land instead of sitting unaddressed:
-
-- **It `@mentions` a reviewer**, if a default reviewer is configured (Step
-  0). A post with no mention is easy to scroll past. Put the mention in its
-  own leading line so it reads as a direct ask, not a passing reference
-  buried in prose.
-- **Links use Slack's link markup**, `<https://url|link text>`, never a bare
-  URL. This isn't just style: a bare URL immediately followed by more text
-  on the next line has been observed to get merged by the send tool into one
-  broken link (`<https://.../pull/311\nCloses|...>` — the literal newline
-  and the word "Closes" ended up inside the URL). Wrapping every link in
-  `<url|text>` on one line avoids this and reads as a clean sentence instead
-  of a dumped link. Give each link its own descriptive text so multiple
-  links in one message (PR + issue) stay visually distinct.
-
-Message format — short, scannable, written for teammates:
-
-```
-<@reviewer-slack-id> — new PR ready for your review.
-
-:rocket: <PR URL|PR title>
-Closes <issue URL|#<N>> — <one-line summary of the change>
-QA steps are in the PR body. <"Includes before/after screenshots and a verification GIF in the comments." if UI>
-```
-
-If no default reviewer is configured and the user hasn't named one in this
-session, post without a leading mention rather than blocking, and say so in
-the wrap-up.
-
-If no Slack MCP is connected, or Slack isn't configured for this repo, skip
-the post and the main agent includes the ready-to-paste message in the
-wrap-up instead, noting that connecting a Slack MCP (`claude mcp add`) and
-configuring a channel would automate this step.
-
-Only announce a PR that was actually marked ready — never a draft.
+Push the branch, then invoke **`ship-pr`** and follow it end to end. The
+main agent authors the PR body (seeded from the Step 2 plan) and decides
+the metadata; subagents do the creation, labels, milestone, and board moves;
+for UI changes, `ui-evidence` posts the before/after shots and GIF as a PR
+comment (Step 6) **before** the PR graduates from draft. `ship-pr` owns the
+ready gate and the Slack announcement — respect its rule that only a
+genuinely reviewable PR gets flipped and announced.
 
 ## Wrap-up report to the user
 
 End with a terse (caveman-compliant) summary: PR URL, board status of issue +
 PR (if a board is configured), checks run and their results, whether the GIF
 was posted, whether Slack was notified, and anything that needs their eyes —
-especially the visual verification if it was a UI change.
+especially the visual verification if it was a UI change. Remind them that
+when the PR is approved and merged, saying so ("it's merged") triggers the
+close-out below.
+
+## Close-out — after approval and merge
+
+The pipeline's coda, usually in a later session once a human has approved
+and merged the PR. When the user says the PR merged (or you observe it),
+invoke **`ship-pr`** and follow its close-out step: a final comment on the
+PR recording the work as actually shipped, and a short comment on the issue
+referencing the PR — so both permanent records end with a simple summary of
+how the issue was closed.
 
 ## Failure modes
 
-- **Board command fails with unknown field/option** — the board's fields
-  changed; re-run `gh project field-list <number> --owner <owner> --format
-  json` to see current fields, `board.sh` resolves by name so this usually
-  self-heals, but a genuinely renamed/removed field needs a config update.
 - **No project board, no PR template, no Slack** — expected in a lot of
   repos. Skip those steps and say so in the wrap-up; this is not a failure.
-- **Issue already assigned to someone else / already In Progress** — stop
-  and ask the user before taking it over.
-- **Plan invalidated mid-implementation** — post a short follow-up comment
-  on the issue correcting the record; don't leave a stale plan as the last
-  word.
+- **Plan invalidated mid-implementation** — `issue-plan` owns the record:
+  post a short follow-up comment on the issue correcting it; don't leave a
+  stale plan as the last word.
 - **Checks fail and the fix isn't obvious** — report honestly in the PR (or
   hold the PR and ask the user). Never check a Testing box that didn't
   actually pass.
+- **Companion mechanics fail** — `issue-plan` (contested issue, posted
+  comment drifted from the authored plan), `gh-board`, and `ui-evidence`
+  each document their own failure modes and recoveries; follow those, and
+  surface in the wrap-up anything that ended up skipped or degraded.

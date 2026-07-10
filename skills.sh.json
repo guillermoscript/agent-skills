@@ -3,7 +3,14 @@
     {
       "title": "GitHub workflow",
       "description": "End-to-end issue and PR automation",
-      "skills": ["work-issue"]
+      "skills": [
+        "work-issue",
+        "issue-plan",
+        "gh-repo-config",
+        "gh-board",
+        "ui-evidence",
+        "ship-pr"
+      ]
     }
   ]
 }
