@@ -13,18 +13,19 @@ consumes its output later — the issue comment is the public record of the
 approach, the PR body is the QA script, the GIF is the visual proof. Write
 those artifacts for *them*, not for the user in this chat.
 
-This skill is the **orchestrator**: it owns the pipeline order, the judgment
-steps (reading, planning, implementing, deciding), and the wrap-up. The
-mechanics live in four companion skills, each also usable standalone —
-invoke them via the Skill tool at the step that needs them, and follow their
-rules rather than restating them here:
+This skill is the **orchestrator**: it owns the pipeline order, the
+implementation (the only phase no companion covers), and the wrap-up. The
+rest lives in five companion skills, each also usable standalone — invoke
+them via the Skill tool at the step that needs them, and follow their rules
+rather than restating them here:
 
 | Skill | Owns | Used at |
 |---|---|---|
 | `gh-repo-config` | Repo facts, conventions, `.claude/gh-workflow.config.json` | Step 0 |
-| `gh-board` | All GitHub Projects (v2) operations (`board.sh`) | Steps 4, 7, 9 |
-| `ui-evidence` | Before/after screenshots, GIF recording, PR media upload | Steps 3, 6, 8 |
-| `ship-pr` | PR body, draft→ready lifecycle, metadata, Slack announcement, post-merge close-out | Steps 7–9 + close-out |
+| `issue-plan` | Read issue → survey → plan → assign + In Progress + plan comment | Step 2 |
+| `gh-board` | All GitHub Projects (v2) operations (`board.sh`) | via `issue-plan`/`ship-pr` |
+| `ui-evidence` | Before/after screenshots, GIF recording, PR media upload | Steps 2, 4, 6 |
+| `ship-pr` | PR body, draft→ready lifecycle, metadata, Slack announcement, post-merge close-out | Steps 5–7 + close-out |
 
 ## Invocation and +skill params
 
@@ -37,7 +38,7 @@ extra skills prefixed with `+`:
 /work-issue 302 +systematic-debugging
 ```
 
-Each `+name` is a skill to load in Step 2 **in addition to** the defaults.
+Each `+name` is a skill to load in Step 1 **in addition to** the defaults.
 This is the extension point: the user will keep adding skills to their
 toolbox over time, so treat the list as open-ended. If a `+name` doesn't
 match any available skill, say so briefly and continue without it — a typo
@@ -105,16 +106,21 @@ actively misled. Three rules make it a non-event:
 - **Damage control — unique names.** Name authored files uniquely
   (`issue-<N>-plan.md`, never `plan.md`) so a stray write is detectable
   instead of plausible, and never reuse a clobbered file — recover into a
-  fresh name (see Failure modes).
+  fresh name.
+
+`issue-plan` and `ship-pr` apply these rules at their own posting steps and
+document the in-place recovery (`gh api -X PATCH` / `gh pr edit`); this
+section is the doctrine that also covers any *other* delegation the run
+invents.
 
 ## Pipeline
 
 ```
-0. Resolve repo + config (gh-repo-config)  →  1. Read issue  →  2. Load skills
-→  3. Plan (+ before-shots via ui-evidence if UI)  →  4. Housekeeping (subagent)
-→  5. Branch + implement  →  6. Verify (+ GIF via ui-evidence if UI)
-→  7. Draft PR + board (ship-pr)  →  8. Post media (ui-evidence)
-→  9. Mark ready + Slack (ship-pr)
+0. Resolve repo + config (gh-repo-config)  →  1. Load skills
+→  2. Read + plan + housekeeping (issue-plan; before-shots via ui-evidence if UI)
+→  3. Branch + implement  →  4. Verify (+ GIF via ui-evidence if UI)
+→  5. Draft PR + board (ship-pr)  →  6. Post media (ui-evidence)
+→  7. Mark ready + Slack (ship-pr)
 ```
 
 ### Step 0 — Resolve repo facts and per-repo config
@@ -128,24 +134,7 @@ right after reading the issue, not one at a time deep into the run. If the
 repo itself can't be resolved (not a git repo, no `gh` auth), stop and tell
 the user.
 
-### Step 1 — Read the issue
-
-Accept a full URL, `#N`, or a bare number. Gather everything in one pass:
-
-```bash
-gh issue view <N> --json number,title,body,labels,milestone,assignees,comments,url
-```
-
-Read the comments too — later comments often amend or overrule the original
-body. If the issue references other issues/PRs (an epic parent, a "relates
-to"), skim those for constraints. If the issue is genuinely ambiguous about
-*what* to build (not *how* — that's your job), ask the user before touching
-anything.
-
-If the issue is already assigned to someone else or already In Progress on
-the board, stop and ask the user before taking it over.
-
-### Step 2 — Load the companion skills
+### Step 1 — Load the companion skills
 
 Invoke via the Skill tool. Always load:
 
@@ -157,8 +146,9 @@ Invoke via the Skill tool. Always load:
 2. **`efficient-fable`** — orchestration mode: you architect and judge;
    cheap subagents do bounded research/coding/testing legwork.
 
-Conditionally load, when the issue is frontend work (a `frontend`/`UI`/`UX`
-label, or the plan touches UI component/page files):
+Conditionally load, once Step 2 reveals the issue is frontend work (a
+`frontend`/`UI`/`UX` label, or the plan touches UI component/page files) —
+these two can wait until then:
 
 3. **`vercel-react-best-practices`** — React/Next.js performance patterns
    (skip if the repo isn't React/Next.js).
@@ -172,58 +162,26 @@ it fits rather than forcing it everywhere.
 
 Do **not** invoke the full `improve` skill (it's a read-only advisor that
 writes plan files under `plans/` and never implements). Instead, borrow its
-posture for Step 3: survey first, read-only, and write the plan well enough
-that someone with zero session context could follow it.
+posture for the planning phase: survey first, read-only, and write the plan
+well enough that someone with zero session context could follow it.
 
-### Step 3 — Plan of attack
+### Step 2 — Read, plan, and housekeeping (issue-plan)
 
-Before writing any code, survey the code the issue touches (read-only —
-Explore subagents are good for this). Produce a short plan:
+Invoke **`issue-plan`** and follow it end to end: it reads the issue (with
+comments and referenced issues), stops if the issue is ambiguous or already
+someone else's, surveys the code read-only, authors the four-part plan
+(root cause, approach, risks, test plan), and spawns the housekeeping
+subagent (assign + board In Progress + plan comment) with the delegation
+guardrail applied. In this pipeline the housekeeping runs in the
+background — don't block on it; start Step 3 while it posts, then check its
+content verification before Step 5.
 
-- **Root cause / current behavior** — what the code does today and why
-  that's the issue.
-- **Approach** — what will change, in which files.
-- **Risks / blast radius** — what else touches this code. Check the repo's
-  `CLAUDE.md`/`AGENTS.md` for documented gotchas (multi-tenancy, auth
-  boundaries, basePath quirks, dual databases, feature flags — whatever that
-  repo calls out) and weigh them here.
-- **Test plan** — which checks will prove it works (commands + manual
-  steps), using the commands discovered in Step 0.
+Its plan is a load-bearing artifact for the rest of the run: it seeds the
+PR body in Step 5, and its test plan is the checklist for Steps 3–4. If the
+issue touches UI, `issue-plan` triggers `ui-evidence`'s before-captures —
+that must happen before any code changes in Step 3.
 
-This plan becomes the issue comment in Step 4 and the seed of the PR body in
-Step 7, so write it once, well.
-
-**If the issue touches anything visible**, invoke **`ui-evidence`** now —
-its before-captures must happen while the code is still untouched; the
-"before" state stops existing the moment you implement.
-
-### Step 4 — Housekeeping (spawn a subagent, don't block on it)
-
-As soon as the plan exists, spawn one subagent to do the GitHub bookkeeping
-while you start implementing. Give it the issue number, issue URL, the
-resolved GitHub username, the plan text, and (if a board is configured) the
-`gh-board` script path and board owner/number, and have it run:
-
-```bash
-gh issue edit <N> --add-assignee <github-user-from-step-0>
-# if board configured — find-or-add the issue, then:
-board.sh status "$ITEM" "In Progress"   # see gh-board for the full recipe
-gh issue comment <N> --body-file <plan.md>
-```
-
-The comment should open with a one-line note that an AI agent is picking
-this up, then the plan from Step 3. This is the public record teammates use
-to see how the issue is being attacked — keep it factual and skimmable
-(headers, short bullets).
-
-Apply the delegation guardrail here — this step is where it has bitten: the
-plan file is a *given* in the subagent's prompt ("already exists and is
-final — do NOT create, edit, or overwrite it"), and when the subagent
-reports back, fetch the posted comment body
-(`gh api repos/<owner>/<repo>/issues/comments/<id> -q .body`) and check it
-matches the plan you wrote before moving on.
-
-### Step 5 — Branch and implement
+### Step 3 — Branch and implement
 
 Branch from up-to-date default branch (`gh repo view --json defaultBranchRef
 -q .defaultBranchRef.name`), following the convention resolved in Step 0
@@ -242,23 +200,24 @@ Run the relevant checks before moving on; if the repo has a pre-push hook
 (check `.githooks/` or `core.hooksPath` in git config) it'll typecheck/lint
 anyway — failures are cheaper to catch now than at push time.
 
-### Step 6 — Verify (GIF required for UI changes)
+### Step 4 — Verify (GIF required for UI changes)
 
 Decide: did this change anything a user can see or click? If yes, this step
 is **mandatory**: invoke the **`verify`** skill to exercise the changed flow
 end-to-end in the running app, and record it per **`ui-evidence`** (GIF +
-matching "after" screenshots of the Step 3 screens).
+matching "after" screenshots of the screens captured during Step 2's
+before-shots).
 
 For backend-only changes, `verify` at your judgment (run the integration
 tests, exercise the endpoint), and skip the GIF.
 
-### Steps 7–9 — Ship the PR
+### Steps 5–7 — Ship the PR
 
 Push the branch, then invoke **`ship-pr`** and follow it end to end. The
-main agent authors the PR body (seeded from the Step 3 plan) and decides
+main agent authors the PR body (seeded from the Step 2 plan) and decides
 the metadata; subagents do the creation, labels, milestone, and board moves;
 for UI changes, `ui-evidence` posts the before/after shots and GIF as a PR
-comment (Step 8) **before** the PR graduates from draft. `ship-pr` owns the
+comment (Step 6) **before** the PR graduates from draft. `ship-pr` owns the
 ready gate and the Slack announcement — respect its rule that only a
 genuinely reviewable PR gets flipped and announced.
 
@@ -284,20 +243,13 @@ how the issue was closed.
 
 - **No project board, no PR template, no Slack** — expected in a lot of
   repos. Skip those steps and say so in the wrap-up; this is not a failure.
-- **Issue already assigned to someone else / already In Progress** — stop
-  and ask the user before taking it over.
-- **A posted comment doesn't match what you authored** — a subagent
-  improvised (see the delegation guardrail). Fix it in place with
-  `gh api -X PATCH .../issues/comments/<id> -f body=@<file>` rather than
-  delete-and-repost — editing keeps the comment's thread position. Write
-  the corrected content to a **new, uniquely-named file** first, so you're
-  not racing whatever clobbered the original.
-- **Plan invalidated mid-implementation** — post a short follow-up comment
-  on the issue correcting the record; don't leave a stale plan as the last
-  word.
+- **Plan invalidated mid-implementation** — `issue-plan` owns the record:
+  post a short follow-up comment on the issue correcting it; don't leave a
+  stale plan as the last word.
 - **Checks fail and the fix isn't obvious** — report honestly in the PR (or
   hold the PR and ask the user). Never check a Testing box that didn't
   actually pass.
-- **Board or media mechanics fail** — `gh-board` and `ui-evidence` document
-  their own failure modes; follow those, and surface in the wrap-up anything
-  that ended up skipped or degraded.
+- **Companion mechanics fail** — `issue-plan` (contested issue, posted
+  comment drifted from the authored plan), `gh-board`, and `ui-evidence`
+  each document their own failure modes and recoveries; follow those, and
+  surface in the wrap-up anything that ended up skipped or degraded.

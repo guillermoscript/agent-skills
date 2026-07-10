@@ -34,7 +34,7 @@
     },
     {
       "id": 6,
-      "prompt": "/work-issue #<N> (observe the Step 4 housekeeping delegation)",
+      "prompt": "/work-issue #<N> (observe the Step 2 housekeeping delegation, performed via issue-plan)",
       "expected_output": "The housekeeping subagent's prompt marks the plan file as given/final (\"do NOT create, edit, or overwrite it; only pass its path\") and the file is uniquely named (issue-<N>-plan.md). After the subagent reports, the main agent fetches the posted comment body via gh api and compares it to the authored plan. If they differ, the comment is corrected in place with gh api -X PATCH from a fresh uniquely-named file — never delete-and-repost.",
       "files": []
     }

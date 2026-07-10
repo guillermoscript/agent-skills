@@ -17,7 +17,8 @@ npx skills add guillermoscript/agent-skills --skill work-issue
 ## Skills
 
 The GitHub-workflow skills compose: `work-issue` is the orchestrator, and
-the other four are the pieces it delegates to — each also usable on its own.
+the other five are the pieces it delegates to — each also usable on its own,
+and concatenable in any subset (plan only, ship only, close-out only…).
 They share one per-repo config file, `.claude/gh-workflow.config.json`,
 managed by `gh-repo-config`.
 
@@ -34,6 +35,14 @@ below.
 /work-issue https://github.com/<owner>/<repo>/issues/123
 /work-issue #123 +shadcn +animate
 ```
+
+### [`issue-plan`](skills/issue-plan/SKILL.md)
+
+The front half on its own: read an issue (comments and references included),
+survey the code it touches read-only, author a four-part plan of attack
+(root cause, approach, risks, test plan), then assign the issue, move it to
+*In Progress*, and post the plan as the issue comment teammates read. "Plan
+#123, don't code it."
 
 ### [`gh-repo-config`](skills/gh-repo-config/SKILL.md)
 
