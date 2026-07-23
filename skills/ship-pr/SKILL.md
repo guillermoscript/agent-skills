@@ -152,6 +152,10 @@ If no Slack MCP is connected or no channel is configured, skip the post and
 hand the user the ready-to-paste message instead, noting that connecting a
 Slack MCP (`claude mcp add`) and configuring a channel would automate this.
 
+Once announced, the **`pr-review-loop`** skill can watch the PR from here —
+polling for reviewer feedback, addressing it, and merging on approval
+(which lands back at this skill's close-out step below).
+
 ## 5. Close-out — after approval and merge
 
 Approval and merge usually happen after the shipping session ends, so this

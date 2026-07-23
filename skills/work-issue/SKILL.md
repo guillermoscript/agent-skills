@@ -15,7 +15,7 @@ those artifacts for *them*, not for the user in this chat.
 
 This skill is the **orchestrator**: it owns the pipeline order, the
 implementation (the only phase no companion covers), and the wrap-up. The
-rest lives in five companion skills, each also usable standalone — invoke
+rest lives in six companion skills, each also usable standalone — invoke
 them via the Skill tool at the step that needs them, and follow their rules
 rather than restating them here:
 
@@ -26,6 +26,7 @@ rather than restating them here:
 | `gh-board` | All GitHub Projects (v2) operations (`board.sh`) | via `issue-plan`/`ship-pr` |
 | `ui-evidence` | Before/after screenshots, GIF recording, PR media upload | Steps 2, 4, 6 |
 | `ship-pr` | PR body, draft→ready lifecycle, metadata, Slack announcement, post-merge close-out | Steps 5–7 + close-out |
+| `pr-review-loop` | Poll the PR for review feedback, address it, merge on approval, trigger close-out | Step 8 |
 
 ## Invocation and +skill params
 
@@ -120,7 +121,7 @@ invents.
 →  2. Read + plan + housekeeping (issue-plan; before-shots via ui-evidence if UI)
 →  3. Branch + implement  →  4. Verify (+ GIF via ui-evidence if UI)
 →  5. Draft PR + board (ship-pr)  →  6. Post media (ui-evidence)
-→  7. Mark ready + Slack (ship-pr)
+→  7. Mark ready + Slack (ship-pr)  →  8. Arm review loop (pr-review-loop)
 ```
 
 ### Step 0 — Resolve repo facts and per-repo config
@@ -221,19 +222,32 @@ comment (Step 6) **before** the PR graduates from draft. `ship-pr` owns the
 ready gate and the Slack announcement — respect its rule that only a
 genuinely reviewable PR gets flipped and announced.
 
+### Step 8 — Arm the review loop (pr-review-loop)
+
+Once the PR is ready and announced, invoke **`pr-review-loop`** and follow
+its arming procedure: it runs one catch-up cycle, then sets an in-session
+cron that polls the PR for reviewer feedback, addresses each comment,
+iterates until approval, merges, and triggers `ship-pr`'s close-out on its
+own. If the PR was left a draft at the ready gate, skip this step — there
+is nothing to review yet.
+
 ## Wrap-up report to the user
 
 End with a terse (caveman-compliant) summary: PR URL, board status of issue +
 PR (if a board is configured), checks run and their results, whether the GIF
-was posted, whether Slack was notified, and anything that needs their eyes —
-especially the visual verification if it was a UI change. Remind them that
-when the PR is approved and merged, saying so ("it's merged") triggers the
-close-out below.
+was posted, whether Slack was notified, whether the review loop is armed,
+and anything that needs their eyes — especially the visual verification if
+it was a UI change. With the loop armed, review feedback and the merge are
+handled automatically while the session lives; remind them that if the
+session ends first, `/pr-review-loop #<N>` resumes it, and saying "it's
+merged" still triggers the manual close-out below.
 
 ## Close-out — after approval and merge
 
-The pipeline's coda, usually in a later session once a human has approved
-and merged the PR. When the user says the PR merged (or you observe it),
+The pipeline's coda when `pr-review-loop` didn't get there first — the
+loop merges and closes out on its own, so this manual path is for when it
+wasn't armed or its session died before approval. When the user says the
+PR merged (or you observe it),
 invoke **`ship-pr`** and follow its close-out step: a final comment on the
 PR recording the work as actually shipped, and a short comment on the issue
 referencing the PR — so both permanent records end with a simple summary of

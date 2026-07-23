@@ -17,7 +17,7 @@ npx skills add guillermoscript/agent-skills --skill work-issue
 ## Skills
 
 The GitHub-workflow skills compose: `work-issue` is the orchestrator, and
-the other five are the pieces it delegates to — each also usable on its own,
+the other six are the pieces it delegates to — each also usable on its own,
 and concatenable in any subset (plan only, ship only, close-out only…).
 They share one per-repo config file, `.claude/gh-workflow.config.json`,
 managed by `gh-repo-config`.
@@ -70,6 +70,20 @@ a QA script, draft-first lifecycle, labels/milestone/board linkage, a strict
 ready gate, and a Slack announcement that actually gets seen. After approval
 and merge, posts the close-out pair — a final "what shipped" comment on the
 PR and a short resolution comment on the issue referencing it.
+
+### [`pr-review-loop`](skills/pr-review-loop/SKILL.md)
+
+The back half after the announcement: watch the PR on an in-session cron,
+answer reviewer questions on-thread, implement requested changes and push
+them, iterate until approval, then merge automatically and trigger
+`ship-pr`'s close-out (plus a "merged" note on Slack). Stateless — GitHub
+threads are the only state, so `/pr-review-loop #123` resumes seamlessly
+after a dead session. Red CI is reported, never auto-fixed.
+
+```
+/pr-review-loop https://github.com/<owner>/<repo>/pull/123
+/pr-review-loop            # resolves the PR from the current branch
+```
 
 **Requires:** [`gh`](https://cli.github.com/) (authenticated), `jq`, and
 (optionally) a Slack MCP server for the review-announcement step and the

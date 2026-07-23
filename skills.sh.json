@@ -9,7 +9,8 @@
         "gh-repo-config",
         "gh-board",
         "ui-evidence",
-        "ship-pr"
+        "ship-pr",
+        "pr-review-loop"
       ]
     }
   ]
