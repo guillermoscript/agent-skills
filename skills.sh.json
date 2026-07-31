@@ -12,6 +12,13 @@
         "ship-pr",
         "pr-review-loop"
       ]
+    },
+    {
+      "title": "Output style",
+      "description": "How Claude reports back to you",
+      "skills": [
+        "terse"
+      ]
     }
   ]
 }

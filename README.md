@@ -89,6 +89,19 @@ after a dead session. Red CI is reported, never auto-fixed.
 (optionally) a Slack MCP server for the review-announcement step and the
 claude-in-chrome extension for UI evidence.
 
+## Output style
+
+### [`terse`](skills/terse/SKILL.md)
+
+Report back in maximally compressed prose — articles, copulas, hedges and
+pleasantries dropped, one line per fact. Grammar loses to information.
+Applies to reporting only: code, commit messages, PR bodies and
+explanation-shaped answers keep their full shape.
+
+```
+/terse
+```
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
