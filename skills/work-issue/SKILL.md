@@ -117,12 +117,37 @@ invents.
 ## Pipeline
 
 ```
-0. Resolve repo + config (gh-repo-config)  →  1. Load skills
+Name session (#N slug)
+→  0. Resolve repo + config (gh-repo-config)  →  1. Load skills
 →  2. Read + plan + housekeeping (issue-plan; before-shots via ui-evidence if UI)
 →  3. Branch + implement  →  4. Verify (+ GIF via ui-evidence if UI)
 →  5. Draft PR + board (ship-pr)  →  6. Post media (ui-evidence)
 →  7. Mark ready + Slack (ship-pr)  →  8. Arm review loop (pr-review-loop)
 ```
+
+### First action — name the session after the issue
+
+Before Step 0's discovery, before anything else: name the session so the user
+can tell at a glance — from the session picker or the terminal tab — which
+issue this session is working. The name is `#<N> <slug>`, where the slug is
+two to four words from the issue title (fetch just the title if you don't
+have it yet: `gh issue view <N> --json title -q .title`). Example:
+`#302 status filter options`. In parallel mode, name the main session after
+the batch (`#302 #305 #310 batch`) — subagents can't rename it.
+
+Two mechanisms, in order:
+
+1. **Session-rename tool** — if the harness exposes one (check the tool
+   list, including deferred tools), use it and you're done. As of Claude
+   Code 2.1.x none exists; this line is future-proofing, not a search
+   errand — don't burn a ToolSearch call hunting for it.
+2. **`/rename` nudge** — otherwise, the built-in `/rename` command is the
+   only rename that exists and only the user can type it (it updates both
+   the session picker and the terminal tab title). Make the first line of
+   your next message the exact string to copy, no explanation around it:
+   `/rename #302 status filter options`. Don't try escape-sequence tricks
+   (`printf '\033]0;...'`): the Bash tool has no controlling terminal, so
+   they never reach the tab.
 
 ### Step 0 — Resolve repo facts and per-repo config
 
