@@ -1,36 +1,24 @@
-# Sound manifest for claude-sounds.
+# DEPRECATED — kept so older installs keep working.
 #
-# Format:  <slot> <url>
-# One slot per line. The installer downloads each URL to
-# ~/.claude/hooks/sounds/<slot>.mp3 and the hook plays it by slot name.
+# Sound manifests now live in packs/: tiktok.txt (this one), zelda.txt,
+# mario.txt. Install a pack with:
 #
-# Swap any reaction by changing the URL here and re-running the installer,
-# or by dropping your own file over ~/.claude/hooks/sounds/<slot>.mp3.
+#   curl -fsSL .../install.sh | bash -s -- --pack zelda
 #
-# Sources are third-party uploads on myinstants.com. They are fetched to each
-# user's own machine at install time and are not redistributed by this repo.
-# If a URL 404s, the installer falls back to a macOS `say` voice for that slot.
+# or switch after the fact with:
 #
-# NOTE: myinstants serves a generic fallback file for dead slugs, so several
-# different-looking URLs can return byte-identical audio. The set below was
-# de-duplicated by md5; keep that in mind when adding new ones.
+#   bash ~/.claude/hooks/sound-tool.sh pack zelda
+#
+# This file mirrors packs/tiktok.txt minus the git/gh slots, which older
+# versions of the hook did not know about.
 
-# --- completed, scaled by lines written/edited in the turn ---
 done_tiny    https://www.myinstants.com/media/sounds/vine-boom.mp3
 done_small   https://www.myinstants.com/media/sounds/faaah.mp3
 done_medium  https://www.myinstants.com/media/sounds/faaaa.mp3
 done_big     https://www.myinstants.com/media/sounds/boosted-faaah-meme.mp3
 done_epic    https://www.myinstants.com/media/sounds/i-got-this-faaaaahhhhhh.mp3
 
-# --- other statuses ---
 failed       https://www.myinstants.com/media/sounds/movie_1.mp3
 failed_big   https://www.myinstants.com/media/sounds/fail-trombone-sound.mp3
 needs_input  https://www.myinstants.com/media/sounds/hm.mp3
 other        https://www.myinstants.com/media/sounds/taco-bell-bong-sfx.mp3
-
-# --- optional extras, not wired by default; swap them into a slot above ---
-extra_metal_pipe  https://www.myinstants.com/media/sounds/metal-pipe-falling-sound-effect.mp3
-extra_anime_wow   https://www.myinstants.com/media/sounds/anime-wow-sound-effect.mp3
-extra_sad_violin  https://www.myinstants.com/media/sounds/sad-violin.mp3
-extra_rizz        https://www.myinstants.com/media/sounds/rizz-sound-effect.mp3
-extra_aughhh      https://www.myinstants.com/media/sounds/aughhhhh.mp3
