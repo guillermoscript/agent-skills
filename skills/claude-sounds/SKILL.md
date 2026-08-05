@@ -28,8 +28,13 @@ to work.
 Requires `jq`, `curl`, and an audio player (`afplay` ships with macOS; `mpv`,
 `ffplay`, `mpg123` or `paplay` on Linux).
 
+The installer also drops the `/sound-setup` wizard into
+`~/.claude/skills/sound-setup/`, so customizing works straight after a curl
+install with no extra step.
+
 Flags: `--pack <name>`, `--uninstall`, `--no-sounds` (hook only, spoken
-fallbacks), `--no-git` (turn-end sounds only), `--dry-run`, `--yes`.
+fallbacks), `--no-git` (turn-end sounds only), `--no-skill` (skip the wizard),
+`--dry-run`, `--yes`.
 
 ## What plays when
 
@@ -130,6 +135,7 @@ breaking the hook or silencing it.
 | `~/.claude/hooks/sound-tool.sh` | the verbs above |
 | `~/.claude/hooks/sound-rules.json` | your mapping (kept across reinstalls) |
 | `~/.claude/hooks/sounds/*.mp3` | audio, one file per slot |
+| `~/.claude/skills/sound-setup/` | the `/sound-setup` wizard |
 | `~/.claude/settings.json` | hook entries (merged, never replaced) |
 
 ## Uninstall

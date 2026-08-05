@@ -5,32 +5,38 @@
 #
 # Flags:
 #   --pack <name> tiktok (default) | zelda | mario
-#   --uninstall   remove hooks and sounds, restore settings
+#   --uninstall   remove hooks, sounds and the skill, restore settings
 #   --no-sounds   install the hooks but skip downloading audio (uses `say`)
 #   --no-git      only wire turn-end sounds, skip the git/gh + waiting hooks
+#   --no-skill    skip the /sound-setup wizard skill
 #   --dry-run     show what would change, touch nothing
 #   --yes         don't prompt
 #
 # Installs to:
 #   ~/.claude/hooks/status-sound.sh    the dispatcher
+#   ~/.claude/hooks/sound-tool.sh      the verbs (list, set, preview, pack, ...)
 #   ~/.claude/hooks/sounds/*.mp3       the audio
 #   ~/.claude/hooks/sound-rules.json   your event -> sound mapping (kept on reinstall)
+#   ~/.claude/skills/sound-setup/      the /sound-setup wizard
 #   ~/.claude/settings.json            Stop + PostToolUse + Notification entries (merged, not replaced)
 
 set -uo pipefail
 
 REPO_RAW="${CLAUDE_SOUNDS_RAW:-https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds}"
+# The wizard skill is a sibling directory in the repo, not under claude-sounds.
+SKILL_RAW="${CLAUDE_SOUNDS_SKILL_RAW:-${REPO_RAW%/*}/sound-setup}"
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
 HOOK_DIR="${CLAUDE_DIR}/hooks"
 SOUND_DIR="${HOOK_DIR}/sounds"
 HOOK_PATH="${HOOK_DIR}/status-sound.sh"
 TOOL_PATH="${HOOK_DIR}/sound-tool.sh"
 RULES_PATH="${HOOK_DIR}/sound-rules.json"
+SKILL_DIR="${CLAUDE_DIR}/skills/sound-setup"
 SETTINGS="${CLAUDE_DIR}/settings.json"
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 
 PACK="tiktok"
-DO_UNINSTALL=0; DO_SOUNDS=1; DO_GIT=1; DRY_RUN=0; ASSUME_YES=0
+DO_UNINSTALL=0; DO_SOUNDS=1; DO_GIT=1; DO_SKILL=1; DRY_RUN=0; ASSUME_YES=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --pack)      PACK="${2:-}"; shift 2 || true; continue ;;
@@ -38,9 +44,10 @@ while [ $# -gt 0 ]; do
     --uninstall) DO_UNINSTALL=1 ;;
     --no-sounds) DO_SOUNDS=0 ;;
     --no-git)    DO_GIT=0 ;;
+    --no-skill)  DO_SKILL=0 ;;
     --dry-run)   DRY_RUN=1 ;;
     --yes|-y)    ASSUME_YES=1 ;;
-    --help|-h)   sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --help|-h)   sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "unknown flag: $1 (try --help)" >&2; exit 2 ;;
   esac
   shift
@@ -100,10 +107,17 @@ if [ "$DO_UNINSTALL" = "1" ]; then
     fi
   fi
   if [ "$DRY_RUN" = "1" ]; then
-    say_ok "[dry-run] would delete $HOOK_PATH, $TOOL_PATH, $SOUND_DIR and $RULES_PATH"
+    say_ok "[dry-run] would delete $HOOK_PATH, $TOOL_PATH, $SOUND_DIR, $RULES_PATH and $SKILL_DIR"
   else
     rm -f "$HOOK_PATH" "$TOOL_PATH" "$RULES_PATH"; rm -rf "$SOUND_DIR"
     say_ok "removed hook, tool, rules and sounds"
+    # Only remove the skill if it is ours — never touch a same-named skill
+    # the user wrote or installed some other way.
+    if [ -f "${SKILL_DIR}/SKILL.md" ] \
+       && grep -q '^name: sound-setup' "${SKILL_DIR}/SKILL.md" 2>/dev/null; then
+      rm -rf "$SKILL_DIR"
+      say_ok "removed the /sound-setup skill"
+    fi
   fi
   echo; say_step "Done. Restart Claude Code (or open /hooks) to apply."
   exit 0
@@ -152,6 +166,29 @@ else
   else
     rm -f "$TOOL_PATH"
     say_warn "could not install sound-tool.sh (the /sound-setup wizard needs it)"
+  fi
+fi
+
+# 1b. the /sound-setup wizard skill
+if [ "$DO_SKILL" = "1" ]; then
+  say_step "Installing the /sound-setup wizard"
+  if [ "$DRY_RUN" = "1" ]; then
+    say_ok "[dry-run] would write ${SKILL_DIR}/SKILL.md"
+  else
+    mkdir -p "$SKILL_DIR"
+    if [ -f "${SKILL_SRC:-}" ]; then
+      cp "$SKILL_SRC" "${SKILL_DIR}/SKILL.md"
+    else
+      curl -fsSL "${SKILL_RAW}/SKILL.md" -o "${SKILL_DIR}/SKILL.md" 2>/dev/null || true
+    fi
+    # A skill without frontmatter won't register, so don't leave a broken one.
+    if [ -s "${SKILL_DIR}/SKILL.md" ] \
+       && head -1 "${SKILL_DIR}/SKILL.md" | grep -q '^---'; then
+      say_ok "${SKILL_DIR}/SKILL.md  (use /sound-setup)"
+    else
+      rm -rf "$SKILL_DIR"
+      say_warn "could not install the skill — use ${TOOL_PATH} directly instead"
+    fi
   fi
 fi
 
@@ -304,8 +341,19 @@ cat <<EOF
 
   Restart Claude Code (or open /hooks once) to activate.
 
-  Change sounds:  /sound-setup   (conversational wizard)
-  Or by hand:     ${RULES_PATH}
+EOF
+if [ -f "${SKILL_DIR}/SKILL.md" ]; then
+cat <<EOF
+  Change sounds:  /sound-setup   (wizard — plays each one as you pick)
+  Or by hand:     bash ${TOOL_PATH} list
+EOF
+else
+cat <<EOF
+  Change sounds:  bash ${TOOL_PATH} list
+EOF
+fi
+cat <<EOF
+  Edit directly:  ${RULES_PATH}
   Swap a file:    ${SOUND_DIR}/<slot>.mp3
   Mute:           CLAUDE_SOUNDS_OFF=1
   Uninstall:      curl -fsSL ${REPO_RAW}/install.sh | bash -s -- --uninstall

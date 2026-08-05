@@ -23,6 +23,9 @@ If it isn't, install it first — the wizard has nothing to configure otherwise:
 curl -fsSL https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds/install.sh | bash -s -- --yes
 ```
 
+That installer also places this skill, so a curl install gets `/sound-setup`
+with no extra step.
+
 Then use `TOOL=~/.claude/hooks/sound-tool.sh` for every command below. If that
 file is missing, the user is on an older install — re-run the installer.
 
