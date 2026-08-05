@@ -19,6 +19,13 @@
       "skills": [
         "terse"
       ]
+    },
+    {
+      "title": "Notifications",
+      "description": "Know how a turn ended without watching the terminal",
+      "skills": [
+        "claude-sounds"
+      ]
     }
   ]
 }

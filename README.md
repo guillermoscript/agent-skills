@@ -102,6 +102,28 @@ explanation-shaped answers keep their full shape.
 /terse
 ```
 
+## Notifications
+
+### [`claude-sounds`](skills/claude-sounds/SKILL.md)
+
+Play a different meme sound when a turn ends, picked by outcome and scaled
+by how much code was written — a small fix gets a vine boom, a 1000-line
+refactor gets a ten-second `I GOT THIS FAAAAAHHHH`. Failures get a BRUH,
+questions get a `hmmm`. Ambient awareness for long runs: you can walk away
+and still know whether it landed, died, or is waiting on you.
+
+Installs a `Stop` hook; works in any Claude Code session, no skill required
+at runtime.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds/install.sh | bash
+```
+
+**Requires:** `jq`, `curl`, and an audio player (`afplay` on macOS; `mpv`,
+`ffplay`, `mpg123` or `paplay` on Linux). Audio is downloaded from
+myinstants.com to your own machine at install time — this repo ships a URL
+manifest, not the sounds.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
