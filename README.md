@@ -130,7 +130,8 @@ manifests, not the sounds.
 
 ### [`sound-setup`](skills/sound-setup/SKILL.md)
 
-The wizard for the above. Asks what you want to hear and when, plays each
+The wizard for the above, **installed automatically by the `claude-sounds`
+one-liner** — no separate step. Asks what you want to hear and when, plays each
 candidate out loud before committing to it, and can search myinstants for
 something it doesn't ship. Also where you set up custom triggers — "when the
 message says *deployed to production*, play the chest sound".
