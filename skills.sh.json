@@ -22,9 +22,10 @@
     },
     {
       "title": "Notifications",
-      "description": "Know how a turn ended without watching the terminal",
+      "description": "Know what happened without watching the terminal",
       "skills": [
-        "claude-sounds"
+        "claude-sounds",
+        "sound-setup"
       ]
     }
   ]

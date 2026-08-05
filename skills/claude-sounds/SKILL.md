@@ -1,16 +1,13 @@
 ---
 name: claude-sounds
-description: Play a different meme sound when Claude Code finishes a turn, picked by outcome (completed / needs input / failed) and scaled by how much code was written — a 1000-line turn ends in a 10-second "I GOT THIS FAAAAAHHHH". Use when the user wants audio notifications for turn endings, asks for sounds when Claude finishes, mentions install/uninstall/customizing claude-sounds, wants to know why a sound played or didn't, or wants to share this setup with someone else.
+description: Play a sound when a Claude Code turn ends, scaled by how much code was written, plus sounds for commits, pushes, PRs, test runs and permission prompts. Packs (tiktok, zelda, mario) and a rules file make every event remappable. Use when the user wants audio notifications, terminal sounds, asks to customize or mute them, wants to know why a sound played, or wants to share this setup with someone.
 ---
 
-# claude-sounds — hear how the turn ended
+# claude-sounds — hear what just happened
 
-A `Stop` hook that plays a sound every time Claude Code hands control back,
-chosen by **how the turn ended** and **how big it was**. Small fix: a quick
-vine boom. Thousand-line refactor: a ten-second scream.
-
-The point is ambient awareness — you can walk away from a long run and know
-from the next room whether it landed, died, or is waiting on you.
+Ambient awareness for long runs. Walk away from the terminal and still know
+whether it landed, died, or is waiting on you — and, for turn endings, roughly
+how big the change was.
 
 ## Install
 
@@ -18,106 +15,182 @@ from the next room whether it landed, died, or is waiting on you.
 curl -fsSL https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds/install.sh | bash
 ```
 
-Then **restart Claude Code, or open `/hooks` once** — the settings watcher
-does not pick up a new hook mid-session.
+Pick a pack while installing:
 
-Requires `jq`, `curl`, and an audio player (`afplay` ships with macOS;
-`mpv`, `ffplay`, `mpg123`, or `paplay` work on Linux).
+```bash
+curl -fsSL .../install.sh | bash -s -- --pack zelda
+```
 
-Flags: `--uninstall`, `--no-sounds` (hook only, spoken fallbacks),
-`--dry-run`, `--yes`.
+Then **restart Claude Code, or open `/hooks` once** — the settings watcher does
+not pick up a new hook mid-session. This is the most common reason it seems not
+to work.
+
+Requires `jq`, `curl`, and an audio player (`afplay` ships with macOS; `mpv`,
+`ffplay`, `mpg123` or `paplay` on Linux).
+
+Flags: `--pack <name>`, `--uninstall`, `--no-sounds` (hook only, spoken
+fallbacks), `--no-git` (turn-end sounds only), `--dry-run`, `--yes`.
 
 ## What plays when
 
-Status comes from the last assistant message of the turn. The three
-background-job markers are exact; everything else is a heuristic.
-
-| Trigger | Status | Sound |
-|---|---|---|
-| message contains `result:` | completed | scales with size, below |
-| contains `needs input:` | needs-input | hmmm |
-| contains `failed:` | failed | BRUH |
-| ends with `?` | needs-input | hmmm |
-| contains error/failed/couldn't/blocked | failed | BRUH |
-| anything else | other | taco bell bong |
-
-**Completed scales** with lines written or edited in that turn (`Write`
+**When a turn ends**, scaled by lines written or edited in that turn (`Write`
 content + `Edit` new_string, counted only since the last user prompt):
 
-| Lines | Sound | Length |
-|---|---|---|
-| <50 | vine boom | 1.3s |
-| 50+ | FAAAH | 2.0s |
-| 200+ | Faaaa | 2.6s |
-| 500+ | boosted FAAAH | 8.9s |
-| 1000+ | **I GOT THIS FAAAAAHHHH** | 10.8s |
+| Lines | Event | tiktok | zelda | mario |
+|---|---|---|---|---|
+| <50 | `done_tiny` | vine boom | rupee | coin |
+| 50+ | `done_small` | FAAAH | korok | 1-up |
+| 200+ | `done_medium` | Faaaa | secret jingle | 1-up mushroom |
+| 500+ | `done_big` | boosted FAAAH | item catch | extra life |
+| 1000+ | `done_epic` | **I GOT THIS FAAAAAHHHH** | high-value item | course clear |
 
-A failure over 200 lines gets the sad trombone instead of BRUH — a big run
-that died deserves more than a one-syllable reaction.
+Status comes from the last assistant message. The three background-job markers
+are exact; the rest is a heuristic.
+
+| Trigger | Event |
+|---|---|
+| contains `result:` | completed → one of the five above |
+| contains `needs input:`, or ends with `?` | `needs_input` |
+| contains `failed:`, or error keywords | `failed` (`failed_big` over 200 lines) |
+| anything else | `other` |
+
+**While you work** — only for commands run in your terminal, and only when they
+succeed:
+
+| Event | Fires on |
+|---|---|
+| `commit` / `push` | `git commit` / `git push` |
+| `pr_opened` / `pr_merged` | `gh pr create` / `gh pr merge` |
+| `tests_pass` / `tests_fail` | `npm test`, `pytest`, `go test`, `cargo test`, `jest`, `vitest`, `bun test` |
+| `permission` | Claude is waiting for your approval |
+
+## Customizing
+
+The friendly way — a conversational wizard that plays each sound as you choose:
+
+```
+/sound-setup
+```
+
+By hand, with the same verbs the wizard drives:
+
+```bash
+TOOL=~/.claude/hooks/sound-tool.sh
+
+bash $TOOL list                      # every event and what it plays
+bash $TOOL preview pr_merged         # hear it
+bash $TOOL pack zelda                # swap the whole pack
+bash $TOOL set pr_merged done_epic   # remap one event
+bash $TOOL mute other                # silence one event
+bash $TOOL search zelda chest        # find a sound on myinstants
+bash $TOOL fetch my_chest <url>      # download it into a slot
+bash $TOOL custom add "shipped it" pr_merged
+bash $TOOL test pr_merged            # fire an event by hand
+```
+
+Or edit `~/.claude/hooks/sound-rules.json` directly. It is re-read on every
+event, so **changes apply immediately** — no reinstall, no restart.
+
+```json
+{
+  "pack": "zelda",
+  "enabled": true,
+  "events": { "pr_merged": "done_epic", "other": null },
+  "thresholds": { "small": 50, "medium": 200, "big": 500, "epic": 1000 },
+  "custom": [{ "match": "deployed to production", "slot": "pr_merged" }]
+}
+```
+
+- **`events`** maps an event to a *slot* — a file at
+  `~/.claude/hooks/sounds/<slot>.mp3`. `null` means stay silent. Several events
+  can share a slot.
+- **`thresholds`** move the line counts that pick a `done_*` event.
+- **`custom`** rules are extended regexes matched case-insensitively against
+  Claude's final message, checked **before** built-in classification, in file
+  order, first match wins. Keep them specific: `error` would fire on any turn
+  that merely mentions an error.
+- Drop any `.mp3` into the sounds directory and map an event to its filename.
+
+A malformed rules file is ignored in favour of the defaults rather than
+breaking the hook or silencing it.
+
+## Muting
+
+| Scope | How |
+|---|---|
+| One event | `bash $TOOL mute <event>` |
+| Everything, this shell | `CLAUDE_SOUNDS_OFF=1` |
+| Everything, persistently | `"enabled": false` in the rules file |
 
 ## Files
 
 | Path | What |
 |---|---|
-| `~/.claude/hooks/status-sound.sh` | the hook |
+| `~/.claude/hooks/status-sound.sh` | the dispatcher, wired to all three events |
+| `~/.claude/hooks/sound-tool.sh` | the verbs above |
+| `~/.claude/hooks/sound-rules.json` | your mapping (kept across reinstalls) |
 | `~/.claude/hooks/sounds/*.mp3` | audio, one file per slot |
-| `~/.claude/settings.json` | `Stop` hook entry (merged, never replaced) |
+| `~/.claude/settings.json` | hook entries (merged, never replaced) |
 
-## Customizing
-
-**Swap a sound**: drop any mp3 over the slot file — no script edit.
+## Uninstall
 
 ```bash
-cp ~/Downloads/my-sound.mp3 ~/.claude/hooks/sounds/done_epic.mp3
+curl -fsSL .../install.sh | bash -s -- --uninstall
 ```
 
-The installer also fetches five unused extras (`extra_metal_pipe`,
-`extra_anime_wow`, `extra_sad_violin`, `extra_rizz`, `extra_aughhh`) — copy
-one over a slot to use it.
+Removes only its own entries; unrelated hooks and settings survive.
 
-**Change thresholds**: edit the `case "${STATUS}"` block in the hook.
+## How it works
 
-**Mute** without uninstalling: `STATUS_SOUND_OFF=1`.
+One dispatcher wired to three hook events:
+
+- **`Stop`** — reads the transcript, classifies the ending, counts the lines.
+- **`PostToolUse`** — matches `Bash` with `if` gating
+  (`"if": "Bash(gh pr merge *)"`), so the hook process only spawns for commands
+  it reacts to — no overhead on every other Bash call. Reads `tool_response` to
+  tell success from failure.
+- **`Notification`** — `permission_prompt` only.
+
+Playback is detached, so a 10-second sound never delays your next prompt, and
+the hook always exits 0 so it can never block a turn.
 
 ## When it does the wrong thing
 
-**No sound at all.** Almost always the settings watcher — restart or open
-`/hooks`. Then check the hook is registered and the audio exists:
+**No sound at all.** Almost always the settings watcher — restart Claude Code or
+open `/hooks`. Then check:
 
 ```bash
-jq '.hooks.Stop' ~/.claude/settings.json
+jq '.hooks | keys' ~/.claude/settings.json    # expect Stop, PostToolUse, Notification
 ls ~/.claude/hooks/sounds/
 ```
 
 **Wrong sound.** Turn on the log and read what it decided:
 
 ```bash
-STATUS_SOUND_DEBUG=1   # writes ~/.claude/status-sound.log
+CLAUDE_SOUNDS_DEBUG=1   # writes ~/.claude/claude-sounds.log
 ```
 
-Each line records the status, line count, and chosen slot. Force a specific
-reaction to test one:
+Each line records the hook event, the resolved event, the line count and the
+chosen slot.
 
-```bash
-STATUS_SOUND_TEST_STATUS=completed STATUS_SOUND_TEST_LINES=1500 \
-  sh -c 'echo "{}" | ~/.claude/hooks/status-sound.sh'
-```
+**Spurious failure sound.** The heuristic reads any message *mentioning* an
+error as a failure. The `result:` / `failed:` markers and custom rules are the
+reliable paths; keyword matching is best-effort.
 
-**Spurious BRUH.** The heuristic reads any message *mentioning* an error as a
-failure, so a turn that merely discusses one triggers it. The `result:` /
-`failed:` markers are the reliable path; the keyword rules are best-effort.
+**A git sound didn't fire.** Only commands run in your terminal are visible, and
+only on success. A PR approved by a teammate on github.com is invisible to any
+hook — nothing here polls GitHub.
 
 ## Notes on the audio
 
-Sounds are downloaded from myinstants.com **to the user's own machine at
-install time** — this repo ships a URL manifest (`sounds.txt`), not audio.
-They are third-party uploads of copyrighted clips: fine as personal
-notification sounds, not something to redistribute.
+Packs are URL manifests (`packs/*.txt`); the installer downloads from
+myinstants.com **to the user's own machine at install time**. This repo ships no
+audio. The clips are third-party uploads of copyrighted material: fine as
+personal notification sounds, not something to redistribute.
 
-If a URL dies the installer says so and that slot falls back to a spoken
-reaction via `say`. Fix by putting any mp3 at the slot path, or by editing
-the URL in `sounds.txt` and re-running.
+If a URL dies, the installer says so and that slot falls back to a spoken
+reaction via `say`. Fix it by putting any mp3 at the slot path.
 
-Heads-up when adding URLs: myinstants serves a **generic fallback file for
-dead slugs**, so different-looking URLs can return byte-identical audio.
-Check with `md5` before assuming a new sound is distinct.
+Heads-up when adding URLs: myinstants serves a **generic fallback file for dead
+slugs**, so different-looking URLs can return byte-identical audio. Check with
+`md5` before assuming a new sound is distinct.

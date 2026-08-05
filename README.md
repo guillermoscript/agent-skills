@@ -106,23 +106,41 @@ explanation-shaped answers keep their full shape.
 
 ### [`claude-sounds`](skills/claude-sounds/SKILL.md)
 
-Play a different meme sound when a turn ends, picked by outcome and scaled
-by how much code was written — a small fix gets a vine boom, a 1000-line
-refactor gets a ten-second `I GOT THIS FAAAAAHHHH`. Failures get a BRUH,
-questions get a `hmmm`. Ambient awareness for long runs: you can walk away
-and still know whether it landed, died, or is waiting on you.
+A sound when a turn ends, picked by outcome and scaled by how much code was
+written — a small fix gets a vine boom, a 1000-line refactor gets a ten-second
+`I GOT THIS FAAAAAHHHH`. Plus sounds while you work: commits, pushes, PRs
+opened and merged, test runs, and when Claude is waiting on your approval.
+Ambient awareness for long runs — walk away and still know whether it landed,
+died, or needs you.
 
-Installs a `Stop` hook; works in any Claude Code session, no skill required
-at runtime.
+Three packs (`tiktok`, `zelda`, `mario`), and every event is remappable, so
+the Zelda chest can be your PR-merged sound.
+
+Installs `Stop`, `PostToolUse` and `Notification` hooks; works in any Claude
+Code session, no skill required at runtime.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds/install.sh | bash -s -- --pack zelda
 ```
 
 **Requires:** `jq`, `curl`, and an audio player (`afplay` on macOS; `mpv`,
 `ffplay`, `mpg123` or `paplay` on Linux). Audio is downloaded from
-myinstants.com to your own machine at install time — this repo ships a URL
-manifest, not the sounds.
+myinstants.com to your own machine at install time — this repo ships URL
+manifests, not the sounds.
+
+### [`sound-setup`](skills/sound-setup/SKILL.md)
+
+The wizard for the above. Asks what you want to hear and when, plays each
+candidate out loud before committing to it, and can search myinstants for
+something it doesn't ship. Also where you set up custom triggers — "when the
+message says *deployed to production*, play the chest sound".
+
+Writes `~/.claude/hooks/sound-rules.json`, which is re-read on every event, so
+changes apply immediately with no reinstall or restart.
+
+```
+/sound-setup
+```
 
 ## License
 

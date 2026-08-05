@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# claude-sounds installer — meme sounds for Claude Code turn endings.
+# claude-sounds installer — sounds for Claude Code events.
 #
 #   curl -fsSL https://raw.githubusercontent.com/guillermoscript/agent-skills/main/skills/claude-sounds/install.sh | bash
 #
 # Flags:
-#   --uninstall   remove the hook and sounds, restore settings
-#   --no-sounds   install the hook but skip downloading audio (uses `say`)
+#   --pack <name> tiktok (default) | zelda | mario
+#   --uninstall   remove hooks and sounds, restore settings
+#   --no-sounds   install the hooks but skip downloading audio (uses `say`)
+#   --no-git      only wire turn-end sounds, skip the git/gh + waiting hooks
 #   --dry-run     show what would change, touch nothing
 #   --yes         don't prompt
 #
 # Installs to:
-#   ~/.claude/hooks/status-sound.sh    the hook
+#   ~/.claude/hooks/status-sound.sh    the dispatcher
 #   ~/.claude/hooks/sounds/*.mp3       the audio
-#   ~/.claude/settings.json            a Stop hook entry (merged, not replaced)
+#   ~/.claude/hooks/sound-rules.json   your event -> sound mapping (kept on reinstall)
+#   ~/.claude/settings.json            Stop + PostToolUse + Notification entries (merged, not replaced)
 
 set -uo pipefail
 
@@ -21,20 +24,32 @@ CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-${HOME}/.claude}"
 HOOK_DIR="${CLAUDE_DIR}/hooks"
 SOUND_DIR="${HOOK_DIR}/sounds"
 HOOK_PATH="${HOOK_DIR}/status-sound.sh"
+TOOL_PATH="${HOOK_DIR}/sound-tool.sh"
+RULES_PATH="${HOOK_DIR}/sound-rules.json"
 SETTINGS="${CLAUDE_DIR}/settings.json"
 UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 
-DO_UNINSTALL=0; DO_SOUNDS=1; DRY_RUN=0; ASSUME_YES=0
-for arg in "$@"; do
-  case "$arg" in
+PACK="tiktok"
+DO_UNINSTALL=0; DO_SOUNDS=1; DO_GIT=1; DRY_RUN=0; ASSUME_YES=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --pack)      PACK="${2:-}"; shift 2 || true; continue ;;
+    --pack=*)    PACK="${1#*=}" ;;
     --uninstall) DO_UNINSTALL=1 ;;
     --no-sounds) DO_SOUNDS=0 ;;
+    --no-git)    DO_GIT=0 ;;
     --dry-run)   DRY_RUN=1 ;;
     --yes|-y)    ASSUME_YES=1 ;;
-    --help|-h)   sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    *) echo "unknown flag: $arg (try --help)" >&2; exit 2 ;;
+    --help|-h)   sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown flag: $1 (try --help)" >&2; exit 2 ;;
   esac
+  shift
 done
+
+case "$PACK" in
+  tiktok|zelda|mario) ;;
+  *) echo "unknown pack: $PACK (choose tiktok, zelda or mario)" >&2; exit 2 ;;
+esac
 
 say_step() { printf '\033[1;36m==>\033[0m %s\n' "$1"; }
 say_ok()   { printf '\033[1;32m  ok\033[0m %s\n' "$1"; }
@@ -56,28 +71,39 @@ for p in afplay mpv ffplay mpg123 paplay; do
   command -v "$p" >/dev/null 2>&1 && { PLAYER="$p"; break; }
 done
 
+# Every hook entry we own carries this marker, so uninstall and reinstall can
+# find them regardless of which events are wired.
+MARKER="status-sound"
+
 # ----------------------------------------------------------------- uninstall --
 if [ "$DO_UNINSTALL" = "1" ]; then
   say_step "Uninstalling claude-sounds"
   if [ -f "$SETTINGS" ]; then
     if [ "$DRY_RUN" = "1" ]; then
-      say_ok "[dry-run] would remove the Stop hook entry from $SETTINGS"
+      say_ok "[dry-run] would remove hook entries from $SETTINGS"
     else
       cp "$SETTINGS" "${SETTINGS}.bak.$(date +%s)"
       tmp=$(mktemp)
-      # Drop our hook, then drop any Stop group left with no hooks.
-      jq '(.hooks.Stop // []) |= (map(.hooks |= map(select((.command // "") | test("status-sound") | not)))
-            | map(select((.hooks | length) > 0)))
-          | if (.hooks.Stop // []) == [] then del(.hooks.Stop) else . end' \
-         "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
-      say_ok "removed hook entry (backup saved)"
+      # Drop our hooks from every event, then drop groups left empty, then
+      # drop events left with no groups. Unrelated hooks are untouched.
+      jq --arg m "$MARKER" '
+          reduce ["Stop","PostToolUse","Notification"][] as $e (.;
+            if (.hooks[$e]? // null) == null then .
+            else
+              .hooks[$e] |= (map(.hooks |= map(select((.command // "") | test($m) | not)))
+                             | map(select((.hooks | length) > 0)))
+              | if (.hooks[$e] | length) == 0 then del(.hooks[$e]) else . end
+            end)
+        | if (.hooks? // {}) == {} then del(.hooks) else . end
+      ' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
+      say_ok "removed hook entries (backup saved)"
     fi
   fi
   if [ "$DRY_RUN" = "1" ]; then
-    say_ok "[dry-run] would delete $HOOK_PATH and $SOUND_DIR"
+    say_ok "[dry-run] would delete $HOOK_PATH, $TOOL_PATH, $SOUND_DIR and $RULES_PATH"
   else
-    rm -f "$HOOK_PATH"; rm -rf "$SOUND_DIR"
-    say_ok "removed hook and sounds"
+    rm -f "$HOOK_PATH" "$TOOL_PATH" "$RULES_PATH"; rm -rf "$SOUND_DIR"
+    say_ok "removed hook, tool, rules and sounds"
   fi
   echo; say_step "Done. Restart Claude Code (or open /hooks) to apply."
   exit 0
@@ -85,9 +111,10 @@ fi
 
 # -------------------------------------------------------------------- install --
 echo
-echo "  claude-sounds — meme sounds for Claude Code"
-echo "  Plays a different sound depending on how each turn ended,"
-echo "  scaled by how much code was written."
+echo "  claude-sounds — sounds for Claude Code"
+echo "  A sound when a turn ends, scaled by how much code was written,"
+echo "  plus commits, pushes, PRs and test runs."
+echo "  pack: ${PACK}"
 echo
 
 [ "$DRY_RUN" = "1" ] && say_warn "dry-run: nothing will be written"
@@ -112,19 +139,37 @@ else
   fi
   chmod +x "$HOOK_PATH"
   say_ok "$HOOK_PATH"
+
+  # The verbs /sound-setup drives (and anyone can run by hand).
+  if [ -f "${TOOL_SRC:-}" ]; then
+    cp "$TOOL_SRC" "$TOOL_PATH"
+  else
+    curl -fsSL "${REPO_RAW}/sound-tool.sh" -o "$TOOL_PATH" 2>/dev/null || true
+  fi
+  if [ -s "$TOOL_PATH" ]; then
+    chmod +x "$TOOL_PATH"
+    say_ok "$TOOL_PATH"
+  else
+    rm -f "$TOOL_PATH"
+    say_warn "could not install sound-tool.sh (the /sound-setup wizard needs it)"
+  fi
 fi
 
 # 2. sounds
 if [ "$DO_SOUNDS" = "1" ]; then
-  say_step "Downloading sounds"
+  say_step "Downloading the ${PACK} pack"
   if [ "$DRY_RUN" = "1" ]; then
     say_ok "[dry-run] would download sounds to $SOUND_DIR"
   else
     mkdir -p "$SOUND_DIR"
     manifest=$(mktemp)
-    if [ -f "${MANIFEST_SRC:-}" ]; then cp "$MANIFEST_SRC" "$manifest"
-    else curl -fsSL "${REPO_RAW}/sounds.txt" -o "$manifest" || {
-      say_err "could not download sounds.txt"; exit 1; }
+    if [ -f "${MANIFEST_SRC:-}" ]; then
+      cp "$MANIFEST_SRC" "$manifest"
+    elif [ -n "${PACK_SRC:-}" ] && [ -f "${PACK_SRC}/${PACK}.txt" ]; then
+      cp "${PACK_SRC}/${PACK}.txt" "$manifest"
+    else
+      curl -fsSL "${REPO_RAW}/packs/${PACK}.txt" -o "$manifest" || {
+        say_err "could not download packs/${PACK}.txt"; exit 1; }
     fi
 
     got=0; missed=0
@@ -148,10 +193,34 @@ else
   say_step "Skipping sounds (--no-sounds); the hook will use spoken fallbacks"
 fi
 
-# 3. settings.json — merge, never clobber
-say_step "Wiring the Stop hook"
+# 3. rules file — never overwrite a customized one
+say_step "Setting up rules"
 if [ "$DRY_RUN" = "1" ]; then
-  say_ok "[dry-run] would add a Stop hook entry to $SETTINGS"
+  say_ok "[dry-run] would write $RULES_PATH (if absent)"
+elif [ -f "$RULES_PATH" ]; then
+  # Keep the user's mapping; just record the pack they last installed.
+  tmp=$(mktemp)
+  if jq --arg p "$PACK" '.pack = $p' "$RULES_PATH" > "$tmp" 2>/dev/null; then
+    mv "$tmp" "$RULES_PATH"
+    say_ok "kept your existing rules (pack set to ${PACK})"
+  else
+    rm -f "$tmp"
+    say_warn "$RULES_PATH is not valid JSON — leaving it alone"
+  fi
+else
+  jq -n --arg p "$PACK" '{pack: $p, enabled: true, events: {}, custom: []}' \
+    > "$RULES_PATH"
+  say_ok "$RULES_PATH"
+fi
+
+# 4. settings.json — merge, never clobber
+if [ "$DO_GIT" = "1" ]; then
+  say_step "Wiring hooks (turn end, git/gh, waiting)"
+else
+  say_step "Wiring hook (turn end only)"
+fi
+if [ "$DRY_RUN" = "1" ]; then
+  say_ok "[dry-run] would add hook entries to $SETTINGS"
 else
   mkdir -p "$CLAUDE_DIR"
   [ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
@@ -163,26 +232,51 @@ else
 
   cp "$SETTINGS" "${SETTINGS}.bak.$(date +%s)"
   tmp=$(mktemp)
-  # Remove any prior copy of our hook, then append a fresh entry. Existing
-  # unrelated Stop hooks are preserved.
-  jq --arg cmd "$HOOK_PATH" '
+  # Remove any prior copy of our hooks from every event, then append fresh
+  # entries. Existing unrelated hooks are preserved.
+  #
+  # PostToolUse uses `if` gating (permission-rule syntax) so the hook process
+  # only spawns for commands we actually react to — no per-Bash-call overhead.
+  jq --arg cmd "$HOOK_PATH" --arg m "$MARKER" --argjson git "$DO_GIT" '
+      def strip($e):
+        if (.hooks[$e]? // null) == null then .
+        else .hooks[$e] |= (map(.hooks |= map(select((.command // "") | test($m) | not)))
+                            | map(select((.hooks | length) > 0)))
+        end;
+
       .hooks //= {}
+    | strip("Stop") | strip("PostToolUse") | strip("Notification")
     | .hooks.Stop //= []
-    | .hooks.Stop |= (map(.hooks |= map(select((.command // "") | test("status-sound") | not)))
-                      | map(select((.hooks | length) > 0)))
     | .hooks.Stop += [{ matcher: "", hooks: [{ type: "command", command: $cmd, async: true }] }]
+    | if $git == 1 then
+          .hooks.PostToolUse //= []
+        | .hooks.PostToolUse += [{
+            matcher: "Bash",
+            hooks: [
+              { "if": "Bash(git commit *)",  type: "command", command: $cmd, async: true },
+              { "if": "Bash(git push *)",    type: "command", command: $cmd, async: true },
+              { "if": "Bash(gh pr create *)",type: "command", command: $cmd, async: true },
+              { "if": "Bash(gh pr merge *)", type: "command", command: $cmd, async: true }
+            ]
+          }]
+        | .hooks.Notification //= []
+        | .hooks.Notification += [{
+            matcher: "permission_prompt",
+            hooks: [{ type: "command", command: $cmd, async: true }]
+          }]
+      else . end
   ' "$SETTINGS" > "$tmp" && mv "$tmp" "$SETTINGS"
 
   if jq -e --arg c "$HOOK_PATH" '.hooks.Stop[].hooks[] | select(.command == $c)' \
        "$SETTINGS" >/dev/null 2>&1; then
-    say_ok "hook registered in $SETTINGS (backup saved)"
+    say_ok "hooks registered in $SETTINGS (backup saved)"
   else
-    say_err "failed to register the hook; your backup is beside $SETTINGS"
+    say_err "failed to register the hooks; your backup is beside $SETTINGS"
     exit 1
   fi
 fi
 
-# 4. demo
+# 5. demo
 if [ "$DRY_RUN" != "1" ] && [ "$DO_SOUNDS" = "1" ] && [ -n "$PLAYER" ] \
    && [ -r "${SOUND_DIR}/done_epic.mp3" ]; then
   say_step "Preview: what a 1000+ line turn sounds like"
@@ -195,19 +289,25 @@ say_step "Installed."
 [ -z "$PLAYER" ] && say_warn "no audio player found (afplay/mpv/ffplay/mpg123/paplay) — install one for real audio"
 cat <<EOF
 
-  Sounds by status:
-    completed  <50 lines   vine boom
-               50+         FAAAH
-               200+        Faaaa
-               500+        boosted FAAAH
-               1000+       I GOT THIS FAAAAAHHHH   (10.8s)
-    needs input            hmmm
-    failed                 BRUH  (sad trombone for big ones)
+  When a turn ends, scaled by lines written:
+    <50 / 50+ / 200+ / 500+ / 1000+   five escalating sounds
+    needs input · failed · other      their own sounds
+EOF
+if [ "$DO_GIT" = "1" ]; then
+cat <<EOF
+  While you work:
+    git commit · git push · gh pr create · gh pr merge
+    test runs (pass and fail) · waiting for your permission
+EOF
+fi
+cat <<EOF
 
   Restart Claude Code (or open /hooks once) to activate.
 
-  Customize:  swap any file in ${SOUND_DIR}
-  Mute:       STATUS_SOUND_OFF=1
-  Uninstall:  curl -fsSL ${REPO_RAW}/install.sh | bash -s -- --uninstall
+  Change sounds:  /sound-setup   (conversational wizard)
+  Or by hand:     ${RULES_PATH}
+  Swap a file:    ${SOUND_DIR}/<slot>.mp3
+  Mute:           CLAUDE_SOUNDS_OFF=1
+  Uninstall:      curl -fsSL ${REPO_RAW}/install.sh | bash -s -- --uninstall
 
 EOF
