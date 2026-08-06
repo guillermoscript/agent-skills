@@ -1,6 +1,6 @@
 ---
 name: pr-review-loop
-description: Watch an open pull request until it merges — poll it on an in-session cron for reviewer feedback, answer questions on the thread, implement requested changes and push them, iterate until the PR is approved, then merge it automatically, run the ship-pr close-out comments on the PR and issue, settle the project board to Done, and post a "merged" note to Slack (if connected). Keeps the board honest throughout — Changes Requested while we owe work, In Review while the reviewer does. Stateless — GitHub is the only state, so it resumes seamlessly after a dead session. Use when the user says "watch this PR", "start the review loop", "babysit the PR until it merges", "poll the PR for comments", "handle the review feedback on #N", or as the final step of an issue workflow after the PR is announced.
+description: Watch an open pull request you authored until it merges — poll it on an in-session cron for reviewer feedback, answer questions on the thread, implement requested changes and push them, iterate until approved, then merge, run the ship-pr close-out comments, settle the project board to Done, post a "merged" note to Slack (if connected), and clean up locally — remove the worktree, delete the merged branch, return to an up-to-date default branch, with guards that never destroy uncommitted or unpushed work. Keeps the board honest throughout — Changes Requested while we owe work, In Review while the reviewer does. Stateless — GitHub is the only state, so it resumes seamlessly after a dead session. Use when the user says "watch this PR", "start the review loop", "babysit the PR until it merges", "poll the PR for comments", "handle the review feedback on #N", or as the final step of an issue workflow after the PR is announced.
 ---
 
 # PR Review Loop — from announced PR to merged, closed out
@@ -25,9 +25,15 @@ Two doctrines govern everything below:
 Config (Slack channel, default reviewer, project board) comes from
 `.claude/gh-workflow.config.json` via the **`gh-repo-config`** skill; board
 moves go through **`gh-board`**; close-out comments belong to
-**`ship-pr`**. Chat with the user may be
+**`ship-pr`**; local cleanup after the merge runs through this skill's own
+`scripts/cleanup.sh`. Chat with the user may be
 terse (caveman), but everything posted to GitHub or Slack is a permanent
 record — normal, professional, full-sentence English.
+
+Reviewing **someone else's** PR is the mirror skill, **`pr-review-watch`** —
+it runs `/code-review`, submits an approve/request-changes verdict, and
+re-reviews each new push. This skill is only for PRs we authored; one PR
+never gets both loops.
 
 ## Invocation and arming
 
@@ -222,15 +228,59 @@ creatively.
    needed a manual flip — that's a sign the board's "Item closed → Done"
    automation isn't enabled, worth fixing once at the board level rather
    than papering over every merge.
-3. **Disarm the cron** (`CronDelete`).
-4. **Slack follow-up**, if a channel is configured: one line in the
+3. **Clean up the local checkout.** The merge is done and the remote branch
+   is gone, but the machine is still sitting on a dead branch — and possibly
+   an isolated worktree from `work-issue` — which is how the next task starts
+   from the wrong base. Cleanup is **destructive, so every step is guarded in
+   code** rather than trusted to prose:
+
+   ```bash
+   <this-skill-dir>/scripts/cleanup.sh check <branch>       # dry run: see what's safe
+   <this-skill-dir>/scripts/cleanup.sh all <branch> [worktree-path]
+   ```
+
+   `all` runs check → remove worktree → delete branch → return to an
+   up-to-date default branch, in that order (the branch can't be deleted
+   while a worktree holds it). Run it from the **main repo, not from inside
+   the worktree being removed** — git refuses to remove the tree you're
+   standing in. If `work-issue` used `EnterWorktree`, leave it via
+   `ExitWorktree` first, then pass the worktree path.
+
+   Each guard protects work that exists nowhere else: uncommitted changes,
+   stashes, and commits whose patches aren't upstream yet. The unpushed check
+   is patch-based (`git cherry`), not reachability-based, precisely because a
+   squash merge — the default merge here — leaves the branch tip unreachable
+   from the default branch while its content is safely merged; a reachability
+   test would refuse to delete any squashed branch, ever.
+
+   **A tripped guard prints `SKIPPED: <reason>` and exits 0.** That is a
+   correct outcome to relay to the user, not an error to retry and never
+   something to force past with `git worktree remove --force` or a manual
+   `rm -rf`. If cleanup skipped something, the merge still succeeded — say
+   what was kept and why, and let the user decide.
+
+4. **Drop this PR's scratch artifacts** — the authored bodies, reply files
+   and media that were only ever inputs to GitHub:
+
+   ```bash
+   <this-skill-dir>/scripts/cleanup.sh scratch <scratchpad-dir> 'pr-<N>-*.md' 'issue-<N>-*.md'
+   ```
+
+   The `scratch` command refuses any path that isn't a scratchpad/tmp
+   directory, so a mistyped argument can't become a recursive delete
+   somewhere real. Never point it at the repo.
+
+5. **Disarm the cron** (`CronDelete`).
+6. **Slack follow-up**, if a channel is configured: one line in the
    review channel so the announcement thread gets its ending, using
    Slack link markup (`<url|text>`, never a bare URL):
    `:white_check_mark: Merged: <PR URL|PR title> — closes <issue URL|#N>.`
    Skip silently if no Slack MCP or channel.
-5. **Terse wrap-up to the user**: merged PR URL, how many review items
+7. **Terse wrap-up to the user**: merged PR URL, how many review items
    were addressed across how many cycles, close-out posted, board status
-   of PR + issue, cron disarmed.
+   of PR + issue, what cleanup removed (worktree, branch, now on an
+   up-to-date default branch) **and anything a guard held back**, cron
+   disarmed.
 
 ## Division of labor
 
@@ -267,3 +317,17 @@ authored before moving on — exit codes lie, content doesn't.
 - **Ambiguous feedback** — clarified on-thread and surfaced in-session
   (see classification); the loop keeps handling other items while that
   thread waits on the reviewer.
+- **Cleanup guard trips (dirty tree, stash, unpushed commits)** — working as
+  designed. The worktree or branch is kept, `cleanup.sh` exits 0, and the
+  wrap-up says what was held back and why. Never force past it; the user
+  decides what happens to work that exists only on their machine.
+- **`cleanup.sh` can't remove the worktree** — usually because it's being run
+  from inside that worktree. `ExitWorktree` (or `cd` to the main repo) and
+  re-run; don't reach for `--force`.
+- **Local default branch has diverged** — `cleanup.sh main` pulls
+  `--ff-only`, so it reports the divergence and leaves the branch alone
+  rather than creating a merge commit during cleanup. Tell the user; it's
+  theirs to reconcile.
+- **The PR was reviewed by us, not authored by us** — wrong skill. Use
+  `pr-review-watch`, which reviews and submits verdicts instead of
+  implementing and merging.

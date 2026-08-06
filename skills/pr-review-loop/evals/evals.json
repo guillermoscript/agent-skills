@@ -23,7 +23,7 @@
     {
       "id": 4,
       "prompt": "run one cycle for PR #<N> (approved, checks green, board automation is NOT enabled)",
-      "expected_output": "Merged via squash with --delete-branch. ship-pr close-out invoked for the PR and issue comments. get-field then shows both items still not Done, so both the PR item and the issue's item are set to Done manually, and the wrap-up tells the user the board's close automation looks disabled. Cron disarmed; Slack merged note posted with <url|text> markup if configured.",
+      "expected_output": "Merged via squash with --delete-branch. ship-pr close-out invoked for the PR and issue comments. get-field then shows both items still not Done, so both the PR item and the issue's item are set to Done manually, and the wrap-up tells the user the board's close automation looks disabled. cleanup.sh all removes the worktree, deletes the merged branch and returns to an up-to-date default branch. Cron disarmed; Slack merged note posted with <url|text> markup if configured.",
       "files": []
     },
     {
@@ -35,7 +35,25 @@
     {
       "id": 6,
       "prompt": "run one cycle for PR #<N> (someone closed it without merging)",
-      "expected_output": "Cron disarmed and the user told. No close-out comments posted (the PR never merged) and no board status guessed — the user is asked whether the item goes back to the backlog or is dropped.",
+      "expected_output": "Cron disarmed and the user told. No close-out comments posted (the PR never merged) and no board status guessed — the user is asked whether the item goes back to the backlog or is dropped. No cleanup runs — the branch was never merged, so deleting it would destroy the only copy of the work.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "run one cycle for PR #<N> (approved and merged; the run happened in an isolated worktree from work-issue)",
+      "expected_output": "After close-out, ExitWorktree (or a cd back to the main repo) happens BEFORE cleanup — git cannot remove the worktree it is standing in. cleanup.sh all <branch> <worktree-path> then removes the worktree, deletes the squash-merged branch (patch-based git cherry check, not a reachability test, so the squashed branch is correctly recognized as safe), and lands on an up-to-date default branch. Scratch artifacts for the PR are deleted with the scratch subcommand pointed at the scratchpad, never at the repo.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "run one cycle for PR #<N> (merged, but the branch has a commit that was never pushed)",
+      "expected_output": "cleanup.sh branch guard trips: prints SKIPPED with the unpushed count and exits 0. The branch is kept, no --force or rm -rf is attempted, and the wrap-up states the branch was preserved and why. The merge, close-out and board updates are still completed and reported.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "run one cycle for PR #<N> (merged; local default branch has diverged from origin)",
+      "expected_output": "cleanup.sh main pulls --ff-only, reports that the default branch has diverged, and leaves it alone rather than creating a merge commit during cleanup. The divergence is surfaced to the user as theirs to reconcile.",
       "files": []
     }
   ]

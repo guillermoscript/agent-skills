@@ -17,10 +17,15 @@ npx skills add guillermoscript/agent-skills --skill work-issue
 ## Skills
 
 The GitHub-workflow skills compose: `work-issue` is the orchestrator, and
-the other six are the pieces it delegates to — each also usable on its own,
+the others are the pieces it delegates to — each also usable on its own,
 and concatenable in any subset (plan only, ship only, close-out only…).
 They share one per-repo config file, `.claude/gh-workflow.config.json`,
 managed by `gh-repo-config`.
+
+Both sides of a review have a loop: `pr-review-loop` watches **your** PR and
+handles the feedback, `pr-review-watch` reviews **someone else's** and
+submits the verdicts. Both poll on a cron until the PR merges, then clean up
+after themselves.
 
 ### [`work-issue`](skills/work-issue/SKILL.md)
 
@@ -73,16 +78,38 @@ PR and a short resolution comment on the issue referencing it.
 
 ### [`pr-review-loop`](skills/pr-review-loop/SKILL.md)
 
-The back half after the announcement: watch the PR on an in-session cron,
-answer reviewer questions on-thread, implement requested changes and push
-them, iterate until approval, then merge automatically and trigger
-`ship-pr`'s close-out (plus a "merged" note on Slack). Stateless — GitHub
-threads are the only state, so `/pr-review-loop #123` resumes seamlessly
-after a dead session. Red CI is reported, never auto-fixed.
+The back half after the announcement, for a PR **you authored**: watch it on
+an in-session cron, answer reviewer questions on-thread, implement requested
+changes and push them, iterate until approval, then merge automatically and
+trigger `ship-pr`'s close-out (plus a "merged" note on Slack). Stateless —
+GitHub threads are the only state, so `/pr-review-loop #123` resumes
+seamlessly after a dead session. Red CI is reported, never auto-fixed.
+
+Once merged it cleans up after itself: removes the worktree, deletes the
+merged branch, and leaves you on an up-to-date default branch. Every deletion
+is guarded in `scripts/cleanup.sh` — uncommitted changes, stashes and
+unpushed commits abort that step and get reported instead of destroyed. The
+unpushed check compares patches (`git cherry`), not reachability, so a
+squash-merged branch is correctly recognized as safe to delete.
 
 ```
 /pr-review-loop https://github.com/<owner>/<repo>/pull/123
 /pr-review-loop            # resolves the PR from the current branch
+```
+
+### [`pr-review-watch`](skills/pr-review-watch/SKILL.md)
+
+The same loop from the **reviewer's** chair, for a PR you did *not* author.
+Runs `/code-review` and `/security-review` over the diff, then submits a real
+GitHub review — `APPROVE` or `REQUEST_CHANGES`, both automatic — with inline
+comments on the lines that earned them. Every later cycle re-reviews only the
+commits pushed since your last review, answers the author on your own threads
+and resolves them once they're genuinely addressed. Approves on code quality
+alone: a red build is a heads-up in the review body, not a veto. Never merges
+— that's the author's button.
+
+```
+/pr-review-watch https://github.com/<owner>/<repo>/pull/123
 ```
 
 **Requires:** [`gh`](https://cli.github.com/) (authenticated), `jq`, and
