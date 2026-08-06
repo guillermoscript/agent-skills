@@ -17,15 +17,25 @@ npx skills add guillermoscript/agent-skills --skill work-issue
 ## Skills
 
 The GitHub-workflow skills compose: `work-issue` is the orchestrator, and
-the others are the pieces it delegates to — each also usable on its own,
-and concatenable in any subset (plan only, ship only, close-out only…).
-They share one per-repo config file, `.claude/gh-workflow.config.json`,
-managed by `gh-repo-config`.
+the others are the pieces it delegates to — each also usable on its own, and
+concatenable in any subset (plan only, ship only, close-out only…).
 
-Both sides of a review have a loop: `pr-review-loop` watches **your** PR and
-handles the feedback, `pr-review-watch` reviews **someone else's** and
-submits the verdicts. Both poll on a cron until the PR merges, then clean up
-after themselves.
+```
+your issue        issue-plan → implement → ui-evidence → ship-pr → pr-review-loop → merged
+                  plan+board    (you)      GIF+shots     PR+Slack  feedback, merge,
+                                                                   close-out, cleanup
+
+their PR          pr-review-watch → review, verdict, re-review each push → merged
+
+used by both      gh-repo-config (repo facts, config)  ·  gh-board (project board)
+```
+
+`work-issue` runs the top row end to end. The two loops are the same idea
+from opposite chairs and never run on the same PR: `pr-review-loop` watches
+**your** PR and handles the feedback, `pr-review-watch` reviews **someone
+else's** and submits the verdicts. Both poll on a cron, both are stateless
+(GitHub is the only state, so a dead session costs nothing — re-invoke and it
+catches up), and both clean up the local checkout once the PR lands.
 
 ### [`work-issue`](skills/work-issue/SKILL.md)
 
@@ -48,19 +58,6 @@ survey the code it touches read-only, author a four-part plan of attack
 (root cause, approach, risks, test plan), then assign the issue, move it to
 *In Progress*, and post the plan as the issue comment teammates read. "Plan
 #123, don't code it."
-
-### [`gh-repo-config`](skills/gh-repo-config/SKILL.md)
-
-Discovers a repo's workflow facts (repo, gh user, PR template, branch/commit
-conventions, build commands) and caches the non-discoverable ones (project
-board, Slack channel, default reviewer) in
-`.claude/gh-workflow.config.json`, asking at most once per repo.
-
-### [`gh-board`](skills/gh-board/SKILL.md)
-
-Operates any GitHub Projects (v2) board by name — add items, find them, set
-Status/Priority/Size or any single-select field — with field and option IDs
-resolved at call time, nothing hardcoded. "Move #123 to In Review."
 
 ### [`ui-evidence`](skills/ui-evidence/SKILL.md)
 
@@ -87,10 +84,9 @@ seamlessly after a dead session. Red CI is reported, never auto-fixed.
 
 Once merged it cleans up after itself: removes the worktree, deletes the
 merged branch, and leaves you on an up-to-date default branch. Every deletion
-is guarded in `scripts/cleanup.sh` — uncommitted changes, stashes and
-unpushed commits abort that step and get reported instead of destroyed. The
-unpushed check compares patches (`git cherry`), not reachability, so a
-squash-merged branch is correctly recognized as safe to delete.
+is guarded — uncommitted changes, stashes and unpushed commits stop that step
+and get reported instead of destroyed, so cleanup can never eat work that
+exists only on your machine.
 
 ```
 /pr-review-loop https://github.com/<owner>/<repo>/pull/123
@@ -112,9 +108,37 @@ alone: a red build is a heads-up in the review body, not a veto. Never merges
 /pr-review-watch https://github.com/<owner>/<repo>/pull/123
 ```
 
-**Requires:** [`gh`](https://cli.github.com/) (authenticated), `jq`, and
-(optionally) a Slack MCP server for the review-announcement step and the
-claude-in-chrome extension for UI evidence.
+Install just the review pair:
+
+```bash
+npx skills add guillermoscript/agent-skills --skill pr-review-loop --skill pr-review-watch
+```
+
+### Shared infrastructure
+
+These two carry no workflow of their own — the skills above call them, and
+you can call them directly. Everything shares one per-repo config file,
+`.claude/gh-workflow.config.json`, so a repo is set up once and every skill
+in the chain picks it up.
+
+#### [`gh-repo-config`](skills/gh-repo-config/SKILL.md)
+
+Discovers a repo's workflow facts (repo, gh user, PR template, branch/commit
+conventions, build commands) and caches the non-discoverable ones (project
+board, Slack channel, default reviewer) in
+`.claude/gh-workflow.config.json`, asking at most once per repo.
+
+#### [`gh-board`](skills/gh-board/SKILL.md)
+
+Operates any GitHub Projects (v2) board by name — add items, find them, set
+Status/Priority/Size or any single-select field — with field and option IDs
+resolved at call time, nothing hardcoded. "Move #123 to In Review."
+
+**The GitHub-workflow skills above require:** [`gh`](https://cli.github.com/)
+(authenticated) and `jq`. Optional: a Slack MCP server for the announcement
+and merge notes, the claude-in-chrome extension for UI evidence, and a
+GitHub Projects (v2) board for the board moves — each is skipped with a note
+when absent, never a hard failure.
 
 ## Output style
 
