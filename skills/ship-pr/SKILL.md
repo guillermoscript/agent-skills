@@ -186,6 +186,11 @@ gh pr comment <PR> --body-file <closeout-pr.md>
 gh issue comment <N> --body-file <closeout-issue.md>
 ```
 
-No board action is needed — merge automation flips the items to Done. If
-follow-up work surfaced during review, link the follow-up issues in both
-comments rather than reopening anything.
+Board: the built-in "Item closed → Done" automation normally flips both
+items, so don't race it — but do **check** rather than assume, since an
+unconfigured board leaves the PR stranded in In Review and the issue in In
+Progress. Read the items' status after posting the comments and set them
+yourself if automation didn't, noting to the user that the board's
+automation looks disabled (`pr-review-loop` does the same after a merge it
+performs). If follow-up work surfaced during review, link the follow-up
+issues in both comments rather than reopening anything.

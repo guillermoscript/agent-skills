@@ -10,7 +10,8 @@
         "gh-board",
         "ui-evidence",
         "ship-pr",
-        "pr-review-loop"
+        "pr-review-loop",
+        "pr-review-watch"
       ]
     },
     {

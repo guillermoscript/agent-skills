@@ -41,8 +41,10 @@ autonomous through the merge — the user chose auto-merge on approval.
   after merging. `ship-pr`'s announce step gets a one-line pointer to the
   loop.
 - Config (Slack channel, reviewer, board) via `gh-repo-config`; board via
-  `gh-board` (no board action needed at merge — automation flips items to
-  Done, per ship-pr).
+  `gh-board`. The loop tracks the board through review (Changes Requested
+  vs In Review) and, at merge, defers to the board's close automation but
+  verifies the outcome — an unconfigured board strands items, so a
+  post-merge read-back that isn't Done gets set manually and reported.
 - `README.md` gains a `pr-review-loop` section and updated composition
   blurb (six companions, not five).
 

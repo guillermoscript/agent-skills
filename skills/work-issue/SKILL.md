@@ -26,7 +26,7 @@ rather than restating them here:
 | `gh-board` | All GitHub Projects (v2) operations (`board.sh`) | via `issue-plan`/`ship-pr` |
 | `ui-evidence` | Before/after screenshots, GIF recording, PR media upload | Steps 2, 4, 6 |
 | `ship-pr` | PR body, draft→ready lifecycle, metadata, Slack announcement, post-merge close-out | Steps 5–7 + close-out |
-| `pr-review-loop` | Poll the PR for review feedback, address it, merge on approval, trigger close-out | Step 8 |
+| `pr-review-loop` | Poll the PR for review feedback, address it, merge on approval, trigger close-out, clean up the worktree/branch | Step 8 |
 
 ## Invocation and +skill params
 
@@ -255,6 +255,14 @@ cron that polls the PR for reviewer feedback, addresses each comment,
 iterates until approval, merges, and triggers `ship-pr`'s close-out on its
 own. If the PR was left a draft at the ready gate, skip this step — there
 is nothing to review yet.
+
+**If this run happened in an isolated worktree** (see "Worktree isolation"
+above), tell the loop the worktree path when arming it. Its post-merge
+cleanup removes the worktree and deletes the merged branch, and it must
+`ExitWorktree` before doing so — git refuses to remove the worktree the
+session is standing in. Its guards keep uncommitted or unpushed work from
+being destroyed, so a cleanup that skips a step is reporting a real
+condition, not failing.
 
 ## Wrap-up report to the user
 

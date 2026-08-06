@@ -1,0 +1,78 @@
+{
+  "skill_name": "pr-review-watch",
+  "note": "Runs submit real GitHub reviews on someone else's PR and may check out branches locally. Use a throwaway PR authored by a second account on a low-stakes repo; expect an in-session cron to be armed unless the eval says otherwise.",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "review PR #<N> and keep watching it until it merges",
+      "expected_output": "Authorship gate runs first: PR author != authenticated user confirmed, PR confirmed not a draft. Board item resolved once via board.sh find (skipped silently if no board). One full review cycle runs immediately, then CronList is checked before CronCreate so only one cron exists for the PR. User is told the cron is session-scoped and expires after 7 days, and that /pr-review-watch #<N> resumes it.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "review PR #<N> (the PR was authored by the authenticated user)",
+      "expected_output": "Authorship gate catches it. No review submitted, no cron armed. User is told this is the wrong skill and pointed at /pr-review-loop #<N> instead.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "review PR #<N> (still a draft)",
+      "expected_output": "Draft detected at the gate. No review comments posted, no cron armed, user told the PR isn't ready for review — unless they explicitly ask to review the draft anyway.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "run one pr-review-watch cycle for PR #<N> (first review, diff has one real bug and one pre-existing issue next to the diff)",
+      "expected_output": "No prior review of ours, so the baseline is the merge base and the whole diff is reviewed. /code-review and /security-review both run. The real bug becomes an inline comment on a line present in the diff; the pre-existing issue is NOT a change request — at most a non-blocking note in the review body. Single review submitted via POST /pulls/<N>/reviews with event REQUEST_CHANGES, commit_id set to the head SHA. Board moved to \"Changes Requested\" if the option exists, read-first.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "run one cycle for PR #<N> (author pushed 3 commits since our last review)",
+      "expected_output": "Baseline read statelessly from our last review's commit_id via the reviews API. Only the incremental diff (baseline..head) is reviewed — not the whole PR again. No duplicate comments repeating findings from the previous cycle.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "run one cycle for PR #<N> (no new commits, no author replies)",
+      "expected_output": "headRefOid equals our last review's SHA, so no re-review happens. No pending thread replies. Cycle ends silently — no comments posted, no board write, no user-facing narration.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "run one cycle for PR #<N> (clean diff, all findings resolved, but CI is red)",
+      "expected_output": "APPROVE submitted anyway — CI is deliberately not an approve gate. The red build is mentioned in the review body as a non-blocking heads-up. The PR is NOT merged (merging is the author's call). Board moved to \"Approved\" if the option exists, else \"In Review\".",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "run one cycle for PR #<N> (author replied 'fixed in abc123' on two of our threads)",
+      "expected_output": "Both threads identified as pending (ours, unresolved, author had the last word). The fix is verified in the current code rather than taken on trust, then each thread gets a confirming reply and IS resolved via resolveReviewThread — resolving is the reviewer's job here, the inverse of pr-review-loop.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "run one cycle for PR #<N> (author force-pushed; our last-reviewed SHA no longer exists)",
+      "expected_output": "Baseline SHA detected as unreachable rather than used to build a bogus diff range. Falls back to a full re-review, and the review body states the branch was force-pushed so the author knows why everything is being re-reviewed.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "run one cycle for PR #<N> (it merged since the last cycle; we had checked out the PR branch)",
+      "expected_output": "Cron disarmed. A final comment is posted only if it adds something the thread doesn't already say. cleanup.sh all runs against the PR branch we checked out — worktree removed, branch deleted, back on an up-to-date default branch — and the author's work is untouched. Scratch review payloads (review-pr-<N>-*.json) deleted. Wrap-up reports verdict history, threads resolved, and what cleanup did.",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "run one cycle for PR #<N> (merged, but the local checkout has uncommitted changes)",
+      "expected_output": "cleanup.sh guard trips and prints SKIPPED with the reason, exiting 0. The worktree/branch is kept, nothing is forced with --force or rm -rf, and the wrap-up tells the user exactly what was held back and why. The merge and close-out are still reported as successful.",
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "review PR #<N> (the user's working tree is dirty)",
+      "expected_output": "No checkout that would stomp the user's in-flight work. Review runs from `gh pr diff` instead, and the wrap-up notes that the repo's local checks were not run against the branch.",
+      "files": []
+    }
+  ]
+}
