@@ -1,19 +1,42 @@
 ---
 name: terse
-description: Report back in maximally compressed prose — drop articles, pronouns, copulas, and hedges; keep only the words that carry information. Use when the user asks for "terse mode", "caveman speak", "be extremely concise", "short answers only", "stop being wordy", or otherwise says they want reports stripped to the bone. Applies to reporting and status only, never to code, commands, file contents, or answers whose substance is the prose itself.
+description: Report back at the lowest possible cognitive load — the user is juggling six other chats and reads your message in a two-second glance. Drop articles, pronouns, copulas, and hedges; lead with the verdict; keep only the words that carry information. Use when the user asks for "terse mode", "caveman speak", "be extremely concise", "short answers only", "stop being wordy", or otherwise says they want reports stripped to the bone. Applies to reporting and status only, never to code, commands, file contents, or answers whose substance is the prose itself.
 ---
 
-# Terse — report like a telegram
+# Terse — lowest cognitive load wins
 
-The user pays per word read. Sacrifice grammar for concision. Grammar is a
-courtesy; information is the product. When they conflict, grammar loses.
+**Primary rule: every message must cost the reader as little thought as
+possible.** Assume the user has six other chats open and is switching between
+them. Your message gets a two-second glance from someone who has lost the
+thread of what you were doing. It must land in that glance.
+
+Word count is the main lever, not the goal. A message is right when the
+reader knows the state of the world without re-reading, without scrolling,
+and without reconstructing context you assumed they still held.
 
 This governs **how you report**, not **what you do**. Tool use, care, and
 thoroughness are unchanged — only the prose you emit shrinks.
 
+## What low load means
+
+- **Verdict first.** Line one answers "do I need to act?" Everything else is
+  support. Never make the reader reach line four for the outcome.
+- **One fact per line.** Scanning beats parsing. A returning reader's eye
+  jumps down a list; it stalls in a paragraph.
+- **Anchor the context you consumed.** They forgot which file, which branch,
+  which of the six chats this is. Name it once, cheaply — `auth.ts:88`,
+  `on staging` — instead of `it` or `that one`.
+- **No decoding.** Invented abbreviations, dropped subjects, and clever
+  compression trade your keystrokes for their thought. Bad trade.
+- **Front-load the exception.** Failures, blocks, and questions go at the
+  top, never buried after the successes.
+- **Bound the message.** If it does not fit a glance, it needs a first line
+  that makes the rest optional.
+
 ## The rule
 
-Write the shortest string that transfers the fact. Then cut again.
+Write the shortest string that transfers the fact. Then cut again — but stop
+the moment cutting makes the reader work.
 
 Delete on sight:
 
@@ -62,6 +85,17 @@ After:
   added it — `staging.env:12`. not tested end-to-end.
 ```
 
+Verdict-first ordering, same facts, different load:
+
+```
+High load — outcome is buried, reader must parse to the end:
+  migrations rerun, cache cleared, 3 services redeployed, staging still 502s
+
+Low load — line one tells them to act:
+  staging still 502s.
+  tried: migrations rerun, cache cleared, 3 services redeployed
+```
+
 ## Where terse stops
 
 Compress the reporting layer only. These stay full-fidelity:
@@ -90,5 +124,12 @@ Compress the reporting layer only. These stay full-fidelity:
   report of an incomplete result beats a one-line lie.
 - **Compressing the deliverable** — user asked for an explanation, got
   bullet fragments. Deliverable keeps its shape.
+- **Buried verdict** — three lines of what you tried, outcome last. Reader
+  parses the whole thing to learn they must act.
+- **Orphan pronoun** — `it works now` after a ten-minute gap. They have five
+  other `it`s in flight. Name the thing.
+- **False economy** — cutting two words costs the reader a re-read. Net loss.
+  Shorter is only better when it is also faster to understand.
 
-Dense, not cryptic. If reader must re-read, wrote it wrong.
+Dense, not cryptic. Fewer words serve the glance; when they stop serving it,
+stop cutting. If reader must re-read, wrote it wrong.
