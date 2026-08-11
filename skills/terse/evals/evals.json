@@ -25,6 +25,18 @@
       "prompt": "short answers only. explain why this code deadlocks.",
       "expected_output": "Padding removed but the explanation is complete — the causal chain is all there. The skill does not truncate an explanation-shaped deliverable into fragments that omit the reasoning.",
       "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "terse mode. try to fix the failing build — I'm in the middle of three other things so just tell me where it lands.",
+      "expected_output": "Verdict first: line one states whether the build passes or still fails, before any list of what was attempted. Attempts, if reported at all, come after. Not a chronological narrative that buries the outcome at the end.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "terse. check the config change from earlier and confirm it took effect.",
+      "expected_output": "Names the concrete subject — the file/setting/environment — rather than relying on an orphan pronoun like `it works now`. Context the user may have lost is re-anchored cheaply (a path, line ref, or env name), not assumed.",
+      "files": []
     }
   ]
 }
