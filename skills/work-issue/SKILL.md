@@ -172,14 +172,39 @@ Invoke via the Skill tool. Always load:
 2. **`efficient-fable`** — orchestration mode: you architect and judge;
    cheap subagents do bounded research/coding/testing legwork.
 
-Conditionally load, once Step 2 reveals the issue is frontend work (a
-`frontend`/`UI`/`UX` label, or the plan touches UI component/page files) —
-these two can wait until then:
+**Stack skills — recommend, ask, remember.** Which further skills help
+depends on the repo's stack (React, Flutter, Rails, …), and the user's
+toolbox grows over time — so never hardcode a list. Resolve it per repo:
 
-3. **`vercel-react-best-practices`** — React/Next.js performance patterns
-   (skip if the repo isn't React/Next.js).
-4. **`vercel-composition-patterns`** — component API and composition design
-   (skip if the repo isn't React/Next.js).
+1. **Saved?** Check `stackSkills` in the gh-workflow config
+   (`config.sh get .stackSkills` via `gh-repo-config`). If the key exists,
+   load those skills and move on — don't re-ask, even if the array is empty
+   (an empty array records "user wants none"). If the user says the list is
+   stale mid-run ("stop loading X", "also use Y"), update the config
+   immediately.
+2. **Detect the stack.** Step 0's discovery plus the manifest files:
+   `package.json` (and which framework its deps name), `pubspec.yaml`
+   (Flutter/Dart), `go.mod`, `Cargo.toml`, `pyproject.toml`, `Gemfile`,
+   `*.csproj`, `next.config.*`, and so on.
+3. **Match against the skills actually available.** Scan the session's
+   available-skills list for skills whose descriptions fit the detected
+   stack and this kind of work — e.g. a React/Next.js repo suggests
+   `vercel-react-best-practices` and `vercel-composition-patterns`; a
+   Flutter repo suggests whatever Flutter skills are installed. Only
+   recommend skills that exist in the list; never invent names.
+4. **Ask.** One AskUserQuestion with `multiSelect: true`: the detected-stack
+   matches first, marked "(Recommended)", other plausibly relevant skills
+   after, plus a "None" option. The built-in "Other" lets the user type any
+   skill names freely — that freedom is the point of asking. If Step 0 left
+   config questions pending, batch this into the same round of questions.
+5. **Remember.** Write the selection to `stackSkills` (array of skill
+   names, possibly empty) in `.claude/gh-workflow.config.json`, and tell the
+   user it's saved there — next run in this repo skips straight to loading.
+
+Load each chosen skill at the step where it matters: UI-pattern and design
+skills can wait until Step 2 confirms the issue actually touches that layer
+(a `frontend`/`UI`/`UX` label, or the plan touches component/page files) —
+no point loading them for a backend-only issue in the same repo.
 
 Then load every `+skill` passed in the invocation (see "Invocation and
 +skill params" above). When a loaded skill only applies to a sub-phase (e.g.
